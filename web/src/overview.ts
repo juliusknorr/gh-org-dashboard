@@ -31,6 +31,9 @@ export interface Week {
   prsOpened: number
   prsClosed: number
   reviewMedian: number | null
+  triageMedian: number | null
+  openIssues: number
+  closedIssues: number
 }
 
 export interface Contributor {
@@ -40,6 +43,8 @@ export interface Contributor {
 }
 
 const isWaiting = (i: Item) => i.type === 'pr' && i.state === 'open' && !i.draft && !i.firstReviewAt
+const isUntriaged = (i: Item) => i.type === 'issue' && i.state === 'open' && !i.triagedAt
+const openedByMember = (i: Item) => i.triagedBy === i.author && i.triagedAt === i.createdAt
 const byDate = (key: 'createdAt' | 'updatedAt') => (a: Item, b: Item) => a[key].localeCompare(b[key])
 
 export function overview(items: Item[], weeks: number, now = Date.now()) {
@@ -51,9 +56,13 @@ export function overview(items: Item[], weeks: number, now = Date.now()) {
     prsOpened: 0,
     prsClosed: 0,
     reviewMedian: null,
+    triageMedian: null,
+    openIssues: 0,
+    closedIssues: 0,
   }))
   const bucket = (iso: string | null) => (iso ? series[Math.floor((weekStart(Date.parse(iso)) - from) / WEEK)] : undefined)
   const reviewTimes: number[][] = series.map(() => [])
+  const triageTimes: number[][] = series.map(() => [])
   const open = items.filter((i) => i.state === 'open')
   const repos = new Map<string, { repo: string; issues: number; prs: number }>()
   const firsts = new Map<string, Contributor>()
@@ -64,6 +73,8 @@ export function overview(items: Item[], weeks: number, now = Date.now()) {
     const closed = i.state !== 'open' ? bucket(i.closedAt) : undefined
     if (closed) i.type === 'pr' ? closed.prsClosed++ : closed.issuesClosed++
     if (opened && i.firstReviewAt) reviewTimes[series.indexOf(opened)].push(Date.parse(i.firstReviewAt) - Date.parse(i.createdAt))
+    if (opened && i.type === 'issue' && i.triagedAt && !openedByMember(i))
+      triageTimes[series.indexOf(opened)].push(Date.parse(i.triagedAt) - Date.parse(i.createdAt))
     if (i.state === 'open') {
       const r = repos.get(i.repo) ?? { repo: i.repo, issues: 0, prs: 0 }
       i.type === 'pr' ? r.prs++ : r.issues++
@@ -78,8 +89,13 @@ export function overview(items: Item[], weeks: number, now = Date.now()) {
       }
     }
   }
-  series.forEach((w, n) => (w.reviewMedian = quantile(reviewTimes[n], 0.5)))
+  series.forEach((w, n) => {
+    w.reviewMedian = quantile(reviewTimes[n], 0.5)
+    w.triageMedian = quantile(triageTimes[n], 0.5)
+    Object.assign(w, issueCounts(items, Math.min(w.start + WEEK, now)))
+  })
   const allReviewTimes = reviewTimes.flat()
+  const allTriageTimes = triageTimes.flat()
   const fromIso = new Date(from).toISOString()
 
   return {
@@ -90,6 +106,7 @@ export function overview(items: Item[], weeks: number, now = Date.now()) {
       openPrs: open.filter((i) => i.type === 'pr').length,
       waiting: open.filter(isWaiting).length,
       communityPrs: open.filter((i) => i.type === 'pr' && !isMember(i)).length,
+      untriaged: open.filter(isUntriaged).length,
       stale: open.filter((i) => now - Date.parse(i.updatedAt) >= STALE_DAYS * DAY).length,
     },
     review: {
@@ -98,11 +115,30 @@ export function overview(items: Item[], weeks: number, now = Date.now()) {
       reviewed: allReviewTimes.length,
       waiting: open.filter((i) => isWaiting(i) && i.createdAt >= fromIso).length,
     },
+    triage: {
+      median: quantile(allTriageTimes, 0.5),
+      p90: quantile(allTriageTimes, 0.9),
+      triaged: allTriageTimes.length,
+      waiting: open.filter((i) => isUntriaged(i) && i.createdAt >= fromIso).length,
+    },
     repos: [...repos.values()].sort((a, b) => b.issues + b.prs - (a.issues + a.prs) || a.repo.localeCompare(b.repo)),
     stale: open.toSorted(byDate('updatedAt')).slice(0, TOP),
+    untriaged: open.filter(isUntriaged).sort(byDate('createdAt')).slice(0, TOP),
     unreviewed: open.filter(isWaiting).sort(byDate('createdAt')).slice(0, TOP),
     newContributors: [...firsts.values()].filter((c) => c.first.createdAt >= fromIso).sort((a, b) => b.first.createdAt.localeCompare(a.first.createdAt)),
   }
+}
+
+export function issueCounts(items: Item[], at: number) {
+  let openIssues = 0
+  let closedIssues = 0
+  for (const i of items) {
+    if (i.type !== 'issue' || Date.parse(i.createdAt) > at) continue
+    const closedAt = i.state !== 'open' && i.closedAt ? Date.parse(i.closedAt) : Infinity
+    if (closedAt <= at) closedIssues++
+    else openIssues++
+  }
+  return { openIssues, closedIssues }
 }
 
 export type Overview = ReturnType<typeof overview>

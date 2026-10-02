@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import type { Item } from '../../shared/types.ts'
 import { isMember } from './filters.ts'
 import { StateIcon, Time } from './format.tsx'
@@ -9,6 +9,7 @@ const HOUR = 3_600_000
 const ALL = { state: '' }
 const DONE = [['state', 'closed'], ['state', 'merged']]
 const WAITING = { type: 'pr', draft: 'no', firstReview: 'no' }
+const UNTRIAGED = { type: 'issue', triaged: 'no' }
 
 const to = (params: Record<string, string | number> | string[][]) =>
   `/?${new URLSearchParams(Array.isArray(params) ? params : Object.entries(params).map(([k, v]) => [k, String(v)]))}`
@@ -76,6 +77,92 @@ function WeekChart({ title, weeks, series }: { title: string; weeks: Week[]; ser
   )
 }
 
+const weekEnd = (w: Week) => isoDate(w.start + 6 * DAY)
+
+function IssueTotals({ weeks }: { weeks: Week[] }) {
+  const [hover, setHover] = useState<number | null>(null)
+  const lines = [
+    { label: 'Open', className: 'ov-line1', value: (w: Week) => w.openIssues },
+    { label: 'Closed (cumulative)', className: 'ov-line2', value: (w: Week) => w.closedIssues },
+  ]
+  const max = Math.max(1, ...weeks.flatMap((w) => lines.map((l) => l.value(w))))
+  const x = (n: number) => (weeks.length > 1 ? (n / (weeks.length - 1)) * 100 : 50)
+  const y = (v: number) => 100 - (v / max) * 100
+  const shown = weeks[hover ?? weeks.length - 1]
+  const closedUntil = (w: Week) => to({ type: 'issue', state: 'closed', closed: `..${weekEnd(w)}` })
+
+  return (
+    <figure className="ov-chart">
+      <figcaption>
+        <span className="ov-legend">
+          {lines.map((l) => (
+            <span key={l.label}>
+              <i className={l.className} /> {l.label}
+            </span>
+          ))}
+        </span>
+        <output>
+          {hover === null ? 'Now' : `Week ending ${weekEnd(shown)}`}: <b>{shown.openIssues}</b> open, <b>{shown.closedIssues}</b> closed
+        </output>
+      </figcaption>
+      <div className="ov-plot ov-lines" onPointerLeave={() => setHover(null)}>
+        <span className="ov-max">{max}</span>
+        <div className="ov-area" aria-hidden="true">
+          <svg viewBox="0 0 100 100" preserveAspectRatio="none">
+            {lines.map((l) => (
+              <polyline key={l.label} className={l.className} points={weeks.map((w, n) => `${x(n)},${y(l.value(w))}`).join(' ')} />
+            ))}
+            {hover !== null && <line className="ov-cross" x1={x(hover)} x2={x(hover)} y1={0} y2={100} />}
+          </svg>
+          {hover !== null &&
+            lines.map((l) => (
+              <span key={l.label} className={`ov-dot ${l.className}`} style={{ left: `${x(hover)}%`, top: `${y(l.value(shown))}%` }} />
+            ))}
+        </div>
+        <div className="ov-hits">
+          {weeks.map((w, n) => (
+            <a
+              key={w.start}
+              href={closedUntil(w)}
+              aria-label={`Week ending ${weekEnd(w)}: ${w.openIssues} open, ${w.closedIssues} closed`}
+              onPointerEnter={() => setHover(n)}
+              onFocus={() => setHover(n)}
+              onBlur={() => setHover(null)}
+            />
+          ))}
+        </div>
+      </div>
+      <div className="ov-axis">
+        <span>{weekEnd(weeks[0])}</span>
+        <span>{weekEnd(weeks.at(-1)!)}</span>
+      </div>
+      <details>
+        <summary>Table</summary>
+        <table className="ov-table">
+          <thead>
+            <tr>
+              <th>Week ending</th>
+              <th>Open</th>
+              <th>Closed</th>
+            </tr>
+          </thead>
+          <tbody>
+            {weeks.map((w) => (
+              <tr key={w.start}>
+                <td>{weekEnd(w)}</td>
+                <td>{w.openIssues}</td>
+                <td>
+                  <a href={closedUntil(w)}>{w.closedIssues}</a>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </details>
+    </figure>
+  )
+}
+
 function ItemList({ items, link, date }: { items: Item[]; link: (i: Item) => string; date: (i: Item) => string }) {
   if (!items.length) return <p className="muted">None</p>
   return (
@@ -132,6 +219,7 @@ export function Overview({ items, search }: { items: Item[]; search: string }) {
         <Stat href={to({ type: 'issue' })} value={o.totals.openIssues} label="Open issues" />
         <Stat href={to({ type: 'pr' })} value={o.totals.openPrs} label="Open PRs" />
         <Stat href={to({ ...WAITING, sort: 'created' })} value={o.totals.waiting} label="PRs waiting for first review" />
+        <Stat href={to(UNTRIAGED)} value={o.totals.untriaged} label="Untriaged issues" />
         <Stat href={to({ type: 'pr', who: 'community' })} value={o.totals.communityPrs} label="Community PRs open" />
         <Stat href={to({ staleFor: 30, sort: 'updated' })} value={o.totals.stale} label="Stale (>30 days)" />
       </div>
@@ -179,6 +267,31 @@ export function Overview({ items, search }: { items: Item[]; search: string }) {
           />
         </Section>
 
+        <Section title="Time to triage" more={[to({ ...ALL, type: 'issue', created: since, triaged: 'yes', who: 'community' }), `${o.triage.triaged} triaged`]}>
+          <div className="ov-stats">
+            <Stat href={to({ ...ALL, type: 'issue', created: since, triaged: 'yes', who: 'community' })} value={duration(o.triage.median)} label="Median" />
+            <Stat href={to({ ...ALL, type: 'issue', created: since, triaged: 'yes', who: 'community' })} value={duration(o.triage.p90)} label="p90" />
+            <Stat href={to({ ...UNTRIAGED, created: since, sort: 'created' })} value={o.triage.waiting} label="Still untriaged" />
+          </div>
+          <WeekChart
+            title="Median per week (by issue opened, excluding member-opened)"
+            weeks={o.series}
+            series={[
+              {
+                label: 'Median',
+                className: 'ov-s1',
+                value: (w) => w.triageMedian,
+                href: (w) => to({ ...ALL, type: 'issue', created: weekRange(w.start), triaged: 'yes', who: 'community' }),
+                format: duration,
+              },
+            ]}
+          />
+        </Section>
+
+        <Section title="Issues">
+          <IssueTotals weeks={o.series} />
+        </Section>
+
         <Section title="Open items per repository">
           <span className="ov-legend">
             <span>
@@ -211,6 +324,10 @@ export function Overview({ items, search }: { items: Item[]; search: string }) {
         </Section>
         <Section title="Oldest PRs without review" more={[to({ ...WAITING, sort: 'created' }), `All ${o.totals.waiting}`]}>
           <ItemList items={o.unreviewed} link={(i) => to({ ...WAITING, sort: 'created', item: i.id })} date={(i) => i.createdAt} />
+        </Section>
+
+        <Section title="Oldest untriaged issues" more={[to({ ...UNTRIAGED, sort: 'created' }), `All ${o.totals.untriaged}`]}>
+          <ItemList items={o.untriaged} link={(i) => to({ ...UNTRIAGED, sort: 'created', item: i.id })} date={(i) => i.createdAt} />
         </Section>
 
         <Section title={`New contributors (${o.newContributors.length})`} wide>

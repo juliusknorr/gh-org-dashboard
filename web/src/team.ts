@@ -28,32 +28,52 @@ export function members(items: Item[], weeks: number, now = Date.now()) {
   return [...stats.values()].sort((a, b) => b.active - a.active || b.last.localeCompare(a.last))
 }
 
-export function team(items: Item[], login: string, weeks: number, now = Date.now()) {
-  const mine = items.filter((i) => i.author === login || i.assignees.includes(login) || i.reviewRequests.includes(login))
-  const metric = (query: Query): Metric => {
+const scope = (items: Item[], login: string, now: number) => {
+  const mine = items.filter((i) => i.author === login || i.assignees.includes(login) || i.reviewRequests.includes(login) || i.triagedBy === login)
+  return (query: Query): Metric => {
     const list = filterItems(mine, { ...DEFAULT_FILTERS, ...query }, now)
     return { count: list.length, href: itemsHref(query), list }
   }
-  const from = weekStart(now) - (weeks - 1) * WEEK
-  const since = `${isoDate(from)}..`
+}
+
+export const rangeStart = (weeks: number, now: number) => weekStart(now) - (weeks - 1) * WEEK
+const since = (from: number) => `${isoDate(from)}..`
+const median = (list: Item[], key: 'firstReviewAt' | 'triagedAt') => quantile(list.map((i) => Date.parse(i[key]!) - Date.parse(i.createdAt)), 0.5)
+
+export function summary(items: Item[], login: string, weeks: number, now = Date.now()) {
+  const metric = scope(items, login, now)
+  const created = since(rangeStart(weeks, now))
   const author = login
   const prs: Query = { author, type: 'pr', state: [] }
-
-  const reviewed = metric({ ...prs, created: since, firstReview: 'yes' })
-  const reviewTimes = reviewed.list.map((i) => Date.parse(i.firstReviewAt!) - Date.parse(i.createdAt))
-  const openPrs = metric({ author, type: 'pr' })
-  const stale = metric({ assignee: login, staleFor: STALE_DAYS })
-  const active: Query = { author, state: [], updatedWithin: weeks * 7 }
-
+  const reviewed = metric({ ...prs, created, firstReview: 'yes' })
+  const triaged = metric({ type: 'issue', state: [], created, triagedBy: login })
   return {
-    from,
-    openPrs,
+    login,
+    openPrs: metric({ author, type: 'pr' }),
     openIssues: metric({ author, type: 'issue' }),
     reviewRequests: metric({ reviewer: login }),
     assigned: metric({ assignee: login }),
-    merged: metric({ ...prs, state: ['merged'], closed: since }),
-    issuesClosed: metric({ author, type: 'issue', state: ['closed'], closed: since }),
-    review: { median: quantile(reviewTimes, 0.5), reviewed, unreviewed: metric({ ...prs, created: since, firstReview: 'no' }) },
+    merged: metric({ ...prs, state: ['merged'], closed: created }),
+    issuesClosed: metric({ author, type: 'issue', state: ['closed'], closed: created }),
+    review: { median: median(reviewed.list, 'firstReviewAt'), reviewed, unreviewed: metric({ ...prs, created, firstReview: 'no' }) },
+    triage: { median: median(triaged.list.filter((i) => i.author !== login), 'triagedAt'), triaged },
+    untriaged: metric({ assignee: login, type: 'issue', triaged: 'no' }),
+  }
+}
+
+export type Summary = ReturnType<typeof summary>
+
+export function team(items: Item[], login: string, weeks: number, now = Date.now()) {
+  const metric = scope(items, login, now)
+  const from = rangeStart(weeks, now)
+  const base = summary(items, login, weeks, now)
+  const prs: Query = { author: login, type: 'pr', state: [] }
+  const stale = metric({ assignee: login, staleFor: STALE_DAYS })
+  const active: Query = { author: login, state: [], updatedWithin: weeks * 7 }
+
+  return {
+    ...base,
+    from,
     series: Array.from({ length: weeks }, (_, n) => {
       const start = from + n * WEEK
       return {
@@ -62,7 +82,7 @@ export function team(items: Item[], login: string, weeks: number, now = Date.now
         merged: metric({ ...prs, state: ['merged'], closed: weekRange(start) }),
       }
     }),
-    oldestPrs: openPrs.list.toSorted((a, b) => a.createdAt.localeCompare(b.createdAt)).slice(0, TOP),
+    oldestPrs: base.openPrs.list.toSorted((a, b) => a.createdAt.localeCompare(b.createdAt)).slice(0, TOP),
     stale: { ...stale, list: stale.list.toSorted((a, b) => a.updatedAt.localeCompare(b.updatedAt)).slice(0, TOP) },
     repos: countBy(metric(active).list, (i) => [i.repo]).map(([repo, count]) => ({ repo, count, href: itemsHref({ ...active, repo: [repo] }) })),
   }

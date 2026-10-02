@@ -2,17 +2,98 @@ import { useMemo, useState } from 'react'
 import { MarkGithubIcon } from '@primer/octicons-react'
 import type { Item } from '../../shared/types.ts'
 import { DAY, RANGES, isoDate } from './overview.ts'
-import { STALE_DAYS, members, team, type Metric, type Team as TeamData } from './team.ts'
+import { STALE_DAYS, members, rangeStart, summary, team, type Metric, type Summary, type Team as TeamData } from './team.ts'
 import { StateIcon, Time } from './format.tsx'
 
 const HOUR = 3_600_000
 const duration = (ms: number) => (ms < 2 * DAY ? `${Math.round(ms / HOUR)}h` : `${Math.round(ms / DAY)}d`)
 
-function navigate(search: string, patch: Record<string, string>) {
+function teamHref(search: string, patch: Record<string, string>) {
   const p = new URLSearchParams(search)
-  for (const [k, v] of Object.entries(patch)) p.set(k, v)
-  history.pushState(null, '', `${location.pathname}?${p}`)
+  for (const [k, v] of Object.entries(patch)) v ? p.set(k, v) : p.delete(k)
+  return `${location.pathname}?${p}`
+}
+
+function navigate(search: string, patch: Record<string, string>) {
+  history.pushState(null, '', teamHref(search, patch))
   dispatchEvent(new PopStateEvent('popstate'))
+}
+
+const DurationCard = ({ label, noun, value, metric }: { label: string; noun: string; value: number | null; metric: Metric }) => (
+  <div className="team-card">
+    <a className="team-value" href={metric.href}>
+      {value === null ? '–' : duration(value)}
+    </a>
+    <span className="team-label">
+      {label} · <a href={metric.href}>{metric.count} {noun}</a>
+    </span>
+  </div>
+)
+
+type Cell = { value: number | null; href: string; time?: boolean }
+const count = (m: Metric): Cell => ({ value: m.count, href: m.href })
+const COLUMNS: [key: string, label: string, cell: (s: Summary) => Cell][] = [
+  ['openPrs', 'Open PRs', (s) => count(s.openPrs)],
+  ['openIssues', 'Open issues', (s) => count(s.openIssues)],
+  ['reviewRequests', 'Review requests', (s) => count(s.reviewRequests)],
+  ['assigned', 'Assigned open', (s) => count(s.assigned)],
+  ['merged', 'PRs merged', (s) => count(s.merged)],
+  ['issuesClosed', 'Issues closed', (s) => count(s.issuesClosed)],
+  ['review', 'Median to first review', (s) => ({ value: s.review.median, href: s.review.reviewed.href, time: true })],
+  ['triaged', 'Issues triaged', (s) => count(s.triage.triaged)],
+  ['triage', 'Median to triage', (s) => ({ value: s.triage.median, href: s.triage.triaged.href, time: true })],
+  ['untriaged', 'Assigned untriaged', (s) => count(s.untriaged)],
+]
+
+function Members({ rows, search }: { rows: Summary[]; search: string }) {
+  const sort = new URLSearchParams(search).get('sort') ?? ''
+  const key = sort.replace(/^-/, '')
+  const desc = sort.startsWith('-')
+  const column = COLUMNS.find(([k]) => k === key)
+  const value = (s: Summary) => column?.[2](s).value ?? null
+  const sorted = column
+    ? rows.toSorted((a, b) => {
+        const [x, y] = [value(a), value(b)]
+        if (x === null || y === null) return x === y ? 0 : x === null ? 1 : -1
+        return desc ? y - x : x - y
+      })
+    : rows
+  return (
+    <div className="team-scroll">
+      <table className="team-table team-members">
+        <thead>
+          <tr>
+            <th>Member</th>
+            {COLUMNS.map(([k, label]) => (
+              <th key={k} aria-sort={k === key ? (desc ? 'descending' : 'ascending') : undefined}>
+                <button type="button" className="link" onClick={() => navigate(search, { sort: k === key && desc ? k : `-${k}` })}>
+                  {label}
+                  {k === key && (desc ? ' ▼' : ' ▲')}
+                </button>
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((s) => (
+            <tr key={s.login}>
+              <th scope="row">
+                <a href={teamHref(search, { member: s.login })}>{s.login}</a>
+              </th>
+              {COLUMNS.map(([k, , cell]) => {
+                const c = cell(s)
+                return (
+                  <td key={k}>
+                    {c.value === null ? <span className="muted">–</span> : <a href={c.href}>{c.time ? duration(c.value) : c.value}</a>}
+                  </td>
+                )
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
 }
 
 const Card = ({ label, metric }: { label: string; metric: Metric }) => (
@@ -156,16 +237,19 @@ function Repos({ repos }: { repos: TeamData['repos'] }) {
 export function Team({ items, search }: { items: Item[]; search: string }) {
   const params = new URLSearchParams(search)
   const weeks = RANGES.includes(Number(params.get('weeks'))) ? Number(params.get('weeks')) : 12
+  const login = params.get('member') ?? ''
   const people = useMemo(() => members(items, weeks), [items, weeks])
-  const login = params.get('member') || people[0]?.login || ''
+  const rows = useMemo(() => (login ? [] : people.map((m) => summary(items, m.login, weeks))), [items, people, login, weeks])
   const t = useMemo(() => (login ? team(items, login, weeks) : null), [items, login, weeks])
 
   return (
     <div className="team">
       <div className="team-filters">
+        {login && <a href={teamHref(search, { member: '' })}>Back to team</a>}
         <label>
           Member
           <select value={login} title="Count: authored items updated in range" onChange={(e) => navigate(search, { member: e.target.value })}>
+            <option value="">All members</option>
             {people.map((m) => (
               <option key={m.login} value={m.login}>
                 {m.login} ({m.active})
@@ -184,10 +268,14 @@ export function Team({ items, search }: { items: Item[]; search: string }) {
             ))}
           </select>
         </label>
-        {t && <span className="muted">since {isoDate(t.from)}</span>}
+        <span className="muted">since {isoDate(rangeStart(weeks, Date.now()))}</span>
       </div>
       {!t ? (
-        <p className="empty">No team members found. Members are authors with a member, owner or collaborator association.</p>
+        rows.length ? (
+          <Members rows={rows} search={search} />
+        ) : (
+          <p className="empty">No team members found. Members are authors with a member, owner or collaborator association.</p>
+        )
       ) : (
         <>
           <h2 className="team-name">
@@ -203,14 +291,9 @@ export function Team({ items, search }: { items: Item[]; search: string }) {
             <Card label="Assigned open" metric={t.assigned} />
             <Card label="PRs merged" metric={t.merged} />
             <Card label="Issues closed" metric={t.issuesClosed} />
-            <div className="team-card">
-              <a className="team-value" href={t.review.reviewed.href} title={`${t.review.reviewed.count} reviewed PRs`}>
-                {t.review.median === null ? '–' : duration(t.review.median)}
-              </a>
-              <span className="team-label">
-                Median to first review, <a href={t.review.unreviewed.href}>{t.review.unreviewed.count} unreviewed</a>
-              </span>
-            </div>
+            <DurationCard label="Median to first review" noun="reviewed" value={t.review.median} metric={t.review.reviewed} />
+            <DurationCard label="Median to triage, excl. own" noun="triaged" value={t.triage.median} metric={t.triage.triaged} />
+            <Card label="Assigned untriaged" metric={t.untriaged} />
           </div>
           <div className="team-grid">
             <WeekChart series={t.series} />

@@ -67,6 +67,8 @@ test('filters', () => {
   assert.deepEqual(numbers({ state: [], firstReview: 'no' }), [3])
   assert.deepEqual(numbers({ state: [], triaged: 'no' }), [1])
   assert.deepEqual(numbers({ state: [], triaged: 'yes' }), [4])
+  assert.deepEqual(numbers({ state: [], triagedBy: 'carol' }), [4])
+  assert.deepEqual(numbers({ state: [], triagedBy: 'dave' }), [])
   assert.deepEqual(numbers({ created: `${daysAgo(30).slice(0, 10)}..` }), [1, 3, 4])
   assert.deepEqual(numbers({ created: `..${daysAgo(31).slice(0, 10)}` }), [])
   assert.deepEqual(numbers({ state: [], closed: daysAgo(2).slice(0, 10) }), [2])

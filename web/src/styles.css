@@ -232,6 +232,27 @@ button.icon-button:hover { color: var(--fg); border-color: var(--border); backgr
 .ov-people { max-height: 24rem; overflow-y: auto; }
 .ov-people li { display: grid; grid-template-columns: minmax(8rem, 14rem) 3rem 1fr auto; gap: 0.5rem; align-items: center; }
 .ov-people .badge { margin-left: 0.3rem; }
+.ov-chart figcaption { flex-wrap: wrap; gap: 0.25rem 1rem; }
+.ov-chart figcaption output { color: var(--fg); margin-left: auto; }
+.ov-legend > span { white-space: nowrap; }
+.ov-chart details[open] { max-height: 16rem; overflow-y: auto; }
+.ov-area { position: absolute; inset: 16px 0 0; }
+.ov-area svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.ov-lines polyline { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.ov-lines .ov-line1 { stroke: var(--series-1); }
+.ov-lines .ov-line2 { stroke: var(--series-2); }
+.ov-legend i.ov-line1 { background: var(--series-1); }
+.ov-legend i.ov-line2 { background: var(--series-2); }
+.ov-cross { stroke: var(--border); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.ov-dot { position: absolute; width: 8px; height: 8px; translate: -50% -50%; border-radius: 50%; box-shadow: 0 0 0 2px var(--bg); pointer-events: none; }
+.ov-dot.ov-line1 { background: var(--series-1); }
+.ov-dot.ov-line2 { background: var(--series-2); }
+.ov-hits { position: absolute; inset: 0; display: flex; }
+.ov-hits a { flex: 1; }
+.ov-chart details summary { font-weight: normal; color: var(--muted); font-size: 12px; }
+.ov-table { display: table; min-width: 0; margin-top: 0.4rem; font-variant-numeric: tabular-nums; }
+.ov-table :is(thead, tbody, tr, th, td) { display: revert; position: static; height: auto; width: auto; background: none; border: 0; }
+.ov-table :is(th, td) { padding: 0.1rem 1rem 0.1rem 0; text-align: left; }
 
 /* team */
 .team { padding: 1rem; display: flex; flex-direction: column; gap: 1rem; max-width: 1400px; }
@@ -280,3 +301,10 @@ a.team-value:hover { text-decoration: underline; }
 .team-track { height: 12px; }
 .team-track span { display: block; height: 100%; min-width: 3px; background: var(--series-1, #2a78d6); border-radius: 0 4px 4px 0; }
 .team-count { text-align: right; font-variant-numeric: tabular-nums; }
+.team-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
+.team-members { width: 100%; margin: 0; border-collapse: collapse; }
+.team-members :is(th, td) { padding: 0.35rem 0.75rem; border-bottom: 1px solid var(--border); text-align: right; white-space: nowrap; }
+.team-members thead th { position: sticky; top: 0; background: var(--bg-alt); font-weight: 600; vertical-align: bottom; white-space: normal; }
+.team-members :is(thead th:first-child, tbody th) { text-align: left; }
+.team-members tbody tr:last-child :is(th, td) { border-bottom: 0; }
+.team-members tbody tr:hover { background: var(--bg-alt); }

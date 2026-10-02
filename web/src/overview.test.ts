@@ -28,6 +28,8 @@ const item = (over: Partial<Item>): Item => ({
   updatedAt: at(1),
   closedAt: null,
   firstReviewAt: null,
+  triagedAt: null,
+  triagedBy: null,
   ...over,
 })
 

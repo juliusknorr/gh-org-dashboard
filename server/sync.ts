@@ -98,6 +98,12 @@ export const COMMON_FIELDS = `
   milestone { title }
   comments { totalCount }`
 
+export const ISSUE_FIELDS = `
+  triageEvents: timelineItems(first: 30, itemTypes: [ISSUE_COMMENT, LABELED_EVENT]) { nodes {
+    ... on IssueComment { createdAt author { login } }
+    ... on LabeledEvent { createdAt actor { login } }
+  } }`
+
 export const PR_FIELDS = `
   isDraft reviewDecision
   firstReviews: reviews(first: 10) { nodes { author { login } submittedAt } }
@@ -124,6 +130,37 @@ export type RawNode = {
   firstReviews?: { nodes: { author: { login: string } | null; submittedAt: string | null }[] }
   reviewRequests?: { nodes: { requestedReviewer: { login?: string; slug?: string } | null }[] }
   commits?: { nodes: { commit: { statusCheckRollup: { state: CiState } | null } }[] }
+  triageEvents?: { nodes: { createdAt: string; author?: { login: string } | null; actor?: { login: string } | null }[] }
+}
+
+const orgMembers = new Set<string>()
+
+export async function loadOrgMembers(): Promise<void> {
+  const query = `query($org: String!, $cursor: String) {
+    organization(login: $org) { membersWithRole(first: 100, after: $cursor) { pageInfo { hasNextPage endCursor } nodes { login } } }
+  }`
+  const logins: string[] = []
+  let cursor: string | null = null
+  do {
+    const data: { organization: { membersWithRole: Page<{ login: string }> } } = await graphql(query, { org: ORG, cursor })
+    logins.push(...data.organization.membersWithRole.nodes.map((m) => m.login))
+    cursor = data.organization.membersWithRole.pageInfo.hasNextPage ? data.organization.membersWithRole.pageInfo.endCursor : null
+  } while (cursor)
+  orgMembers.clear()
+  for (const login of logins) orgMembers.add(login)
+}
+
+export const ensureOrgMembers = () => (orgMembers.size ? Promise.resolve() : loadOrgMembers())
+
+function triage(node: RawNode): { triagedAt: string | null; triagedBy: string | null } {
+  if (node.isDraft !== undefined) return { triagedAt: null, triagedBy: null }
+  const author = node.author?.login
+  if (author && orgMembers.has(author)) return { triagedAt: node.createdAt, triagedBy: author }
+  const first = (node.triageEvents?.nodes ?? [])
+    .map((e) => ({ at: e.createdAt, by: (e.author ?? e.actor)?.login }))
+    .filter((e) => e.by && orgMembers.has(e.by))
+    .sort((a, b) => a.at.localeCompare(b.at))[0]
+  return { triagedAt: first?.at ?? null, triagedBy: first?.by ?? null }
 }
 
 export function toItem(repo: string, node: RawNode): Item {
@@ -156,11 +193,12 @@ export function toItem(repo: string, node: RawNode): Item {
         .filter((r) => r.submittedAt && r.author?.login !== node.author?.login)
         .map((r) => r.submittedAt!)
         .sort()[0] ?? null,
+    ...triage(node),
   }
 }
 
 async function syncConnection(repo: string, connection: 'issues' | 'pullRequests', since: string | null): Promise<string | null> {
-  const fields = connection === 'pullRequests' ? COMMON_FIELDS + PR_FIELDS : COMMON_FIELDS
+  const fields = connection === 'pullRequests' ? COMMON_FIELDS + PR_FIELDS : COMMON_FIELDS + ISSUE_FIELDS
   const query = `query($org: String!, $repo: String!, $cursor: String, $pageSize: Int!) {
     repository(owner: $org, name: $repo) {
       ${connection}(first: $pageSize, after: $cursor, orderBy: { field: UPDATED_AT, direction: DESC }) { pageInfo { hasNextPage endCursor } nodes { ${fields} } }
@@ -196,7 +234,7 @@ async function searchSync(since: string): Promise<boolean> {
     search(query: $q, type: ISSUE, first: 50, after: $cursor) {
       issueCount pageInfo { hasNextPage endCursor }
       nodes {
-        ... on Issue { repository { name } ${COMMON_FIELDS} }
+        ... on Issue { repository { name } ${COMMON_FIELDS} ${ISSUE_FIELDS} }
         ... on PullRequest { repository { name } ${COMMON_FIELDS} ${PR_FIELDS} }
       }
     }
@@ -234,6 +272,7 @@ async function runSync(): Promise<void> {
     return
   }
   const started = Date.now()
+  await loadOrgMembers()
   const repos = await listRepos()
   const errors: string[] = []
   const unsynced = repos.filter((repo) => !getMeta(`repo:${repo}:updatedAt`))
@@ -245,7 +284,7 @@ async function runSync(): Promise<void> {
   status.error = errors.length ? errors.join('\n') : null
   status.lastSyncAt = new Date().toISOString()
   setMeta('lastSyncAt', status.lastSyncAt)
-  const mode = viaSearch ? 'search' : `${unsynced.length} full`
+  const mode = [unsynced.length && `${unsynced.length} full`, viaSearch ? 'search' : 'per repo'].filter(Boolean).join(' + ')
   console.log(`synced ${repos.length} repos (${mode}) in ${((Date.now() - started) / 1000).toFixed(1)}s, ${rateLimit.remaining} API points left${errors.length ? `, ${errors.length} failed` : ''}`)
 }
 

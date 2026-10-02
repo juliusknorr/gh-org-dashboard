@@ -13,7 +13,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 `)
 
-const SCHEMA_VERSION = '2'
+const SCHEMA_VERSION = '3'
 
 const upsertStmt = db.prepare(
   'INSERT INTO items (id, repo, updated_at, json) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET repo = excluded.repo, updated_at = excluded.updated_at, json = excluded.json',

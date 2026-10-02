@@ -1,7 +1,7 @@
 import { mergeBlockers } from '../shared/merge.ts'
 import type { Check, ItemAction, ItemDetails, MergeMethod, PrDetails, RepoOptions, Review } from '../shared/types.ts'
 import { upsertItems } from './db.ts'
-import { COMMON_FIELDS, HttpError, ORG, PR_FIELDS, graphql, rest, toItem, type RawNode } from './sync.ts'
+import { COMMON_FIELDS, HttpError, ISSUE_FIELDS, ORG, PR_FIELDS, ensureOrgMembers, graphql, rest, toItem, type RawNode } from './sync.ts'
 
 const MAX_COMMENT_LENGTH = 65536
 const MAX_REF_LENGTH = 200
@@ -30,7 +30,7 @@ const PR_DETAIL_FIELDS = `
   } } } } } }`
 
 const DETAILS_QUERY = `query($id: ID!) { node(id: $id) {
-  ... on Issue { ${COMMON_FIELDS} ${DETAIL_FIELDS} }
+  ... on Issue { ${COMMON_FIELDS} ${ISSUE_FIELDS} ${DETAIL_FIELDS} }
   ... on PullRequest { ${COMMON_FIELDS} ${PR_FIELDS} ${DETAIL_FIELDS} ${PR_DETAIL_FIELDS} }
 } }`
 
@@ -87,6 +87,7 @@ function toPrDetails(node: PrNode): PrDetails {
 }
 
 export async function fetchDetails(id: string): Promise<ItemDetails> {
+  await ensureOrgMembers()
   const { node } = await graphql<{ node: DetailNode | null }>(DETAILS_QUERY, { id })
   if (!node?.repository || node.repository.owner.login.toLowerCase() !== ORG.toLowerCase()) throw new HttpError(404, 'Item not found')
   const item = toItem(node.repository.name, node)

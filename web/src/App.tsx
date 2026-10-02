@@ -236,6 +236,7 @@ function Sidebar({ items, filters, update }: { items: Item[]; filters: Filters; 
   const facet = (key: keyof Filters, values: (i: Item) => (string | null)[]) =>
     countBy(filterItems(items, { ...filters, [key]: Array.isArray(filters[key]) ? [] : DEFAULT_FILTERS[key] }), values)
   const prOnly = (pick: (i: Item) => string | null) => (i: Item) => (i.type === 'pr' ? [pick(i)] : [])
+  const issueOnly = (pick: (i: Item) => string | null) => (i: Item) => (i.type === 'issue' ? [pick(i)] : [])
 
   return (
     <aside>
@@ -252,6 +253,8 @@ function Sidebar({ items, filters, update }: { items: Item[]; filters: Filters; 
       <Single label="Assignee" value={filters.assignee} counts={facet('assignee', (i) => (i.assignees.length ? i.assignees : [NONE]))} onChange={(assignee) => update({ assignee })} />
       <Single label="Review requested" value={filters.reviewer} counts={facet('reviewer', (i) => i.reviewRequests)} onChange={(reviewer) => update({ reviewer })} />
       <Single label="First review" value={filters.firstReview} counts={facet('firstReview', prOnly((i) => (i.firstReviewAt ? 'yes' : 'no')))} onChange={(v) => update({ firstReview: v as Filters['firstReview'] })} />
+      <Single label="Triaged" value={filters.triaged} counts={facet('triaged', issueOnly((i) => (i.triagedAt ? 'yes' : 'no')))} onChange={(v) => update({ triaged: v as Filters['triaged'] })} />
+      <Single label="Triaged by" value={filters.triagedBy} counts={facet('triagedBy', (i) => (i.triagedBy ? [i.triagedBy] : []))} onChange={(triagedBy) => update({ triagedBy })} />
       <Single label="Draft" value={filters.draft} counts={facet('draft', prOnly((i) => (i.draft ? 'yes' : 'no')))} onChange={(v) => update({ draft: v as Filters['draft'] })} />
       <Single label="Review decision" value={filters.review} counts={facet('review', prOnly((i) => i.reviewDecision))} onChange={(review) => update({ review })} />
       <Single label="CI" value={filters.ci} counts={facet('ci', prOnly((i) => i.ci))} onChange={(ci) => update({ ci })} />

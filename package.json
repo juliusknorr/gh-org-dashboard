@@ -1,0 +1,26 @@
+{
+  "name": "gh-org-dashboard",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "server": "node --watch server/index.ts",
+    "dev": "vite web",
+    "build": "vite build web",
+    "start": "node server/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.2"
+  },
+  "dependencies": {
+    "@tanstack/react-table": "^9.2.4",
+    "@tanstack/react-virtual": "^3.14.13",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  }
+}

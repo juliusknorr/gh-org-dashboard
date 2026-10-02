@@ -1,0 +1,105 @@
+:root {
+  color-scheme: light dark;
+  --bg: #fff;
+  --bg-alt: #f6f8fa;
+  --fg: #1f2328;
+  --muted: #59636e;
+  --border: #d1d9e0;
+  --accent: #0969da;
+  --open: #1a7f37;
+  --closed: #cf222e;
+  --merged: #8250df;
+  --warn: #9a6700;
+  --cols: 70px 190px minmax(280px, 1fr) 150px 120px 200px 220px 80px 100px 100px;
+  font: 14px/1.4 system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d1117;
+    --bg-alt: #151b23;
+    --fg: #e6edf3;
+    --muted: #9198a1;
+    --border: #3d444d;
+    --accent: #4493f8;
+    --open: #3fb950;
+    --closed: #f85149;
+    --merged: #ab7df8;
+    --warn: #d29922;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); }
+a { color: var(--accent); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.error { color: var(--closed); }
+
+.layout {
+  display: grid;
+  grid-template: auto auto 1fr / 260px 1fr;
+  height: 100vh;
+}
+header {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+header h1 { font-size: 1.2rem; margin: 0; }
+header .sync { margin-left: auto; display: flex; gap: 0.75rem; align-items: center; color: var(--muted); }
+.layout > .error { grid-column: 1 / -1; margin: 0.5rem 1rem; }
+
+button {
+  font: inherit;
+  color: inherit;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.25rem 0.75rem;
+  cursor: pointer;
+}
+button:disabled { opacity: 0.6; cursor: progress; }
+button.link { background: none; border: 0; padding: 0; color: inherit; font-weight: inherit; text-align: inherit; }
+button.link:hover { text-decoration: underline; }
+
+aside {
+  grid-row: 3;
+  overflow-y: auto;
+  padding: 0.75rem;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+aside > label { display: flex; flex-direction: column; gap: 0.2rem; font-weight: 600; }
+aside input, aside select { font: inherit; font-weight: normal; padding: 0.25rem; width: 100%; }
+details summary { font-weight: 600; cursor: pointer; }
+details fieldset { border: 0; margin: 0.25rem 0 0; padding: 0; max-height: 14rem; overflow-y: auto; }
+.check { display: flex; gap: 0.4rem; align-items: center; }
+.check input { width: auto; }
+.check span:first-of-type { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.count { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+main { grid-row: 3; overflow: auto; position: relative; }
+table { display: grid; border-collapse: collapse; min-width: max-content; }
+thead { display: grid; position: sticky; top: 0; z-index: 1; background: var(--bg-alt); }
+tbody { display: grid; position: relative; }
+tr { display: grid; grid-template-columns: var(--cols); width: 100%; }
+tbody tr { position: absolute; height: 36px; border-bottom: 1px solid var(--border); }
+tbody tr:hover { background: var(--bg-alt); }
+th, td { padding: 0 0.5rem; display: flex; align-items: center; gap: 0.25rem; overflow: hidden; white-space: nowrap; }
+th { height: 36px; text-align: left; border-bottom: 1px solid var(--border); }
+td a, .col-assignees { overflow: hidden; text-overflow: ellipsis; }
+.col-comments, .col-created, .col-updated { color: var(--muted); font-variant-numeric: tabular-nums; }
+.empty { padding: 1rem; color: var(--muted); }
+
+.chip { display: inline-block; padding: 0 0.45rem; border-radius: 1em; font-size: 12px; font-weight: 500; line-height: 1.5; }
+.badge { display: inline-block; padding: 0 0.4rem; border-radius: 1em; font-size: 12px; border: 1px solid currentColor; line-height: 1.4; }
+.state-open { color: var(--open); }
+.state-closed { color: var(--closed); }
+.state-merged { color: var(--merged); }
+.community { color: var(--warn); }
+.review-APPROVED, .ci-SUCCESS { color: var(--open); }
+.review-CHANGES_REQUESTED, .ci-FAILURE, .ci-ERROR { color: var(--closed); }
+.review-REVIEW_REQUIRED, .ci-PENDING, .ci-EXPECTED { color: var(--warn); }

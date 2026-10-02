@@ -13,6 +13,8 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 `)
 
+const SCHEMA_VERSION = '2'
+
 const upsertStmt = db.prepare(
   'INSERT INTO items (id, repo, updated_at, json) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET repo = excluded.repo, updated_at = excluded.updated_at, json = excluded.json',
 )
@@ -41,4 +43,9 @@ export function getMeta(key: string): string | null {
 
 export function setMeta(key: string, value: string): void {
   setMetaStmt.run(key, value)
+}
+
+if (getMeta('schemaVersion') !== SCHEMA_VERSION) {
+  db.prepare("DELETE FROM meta WHERE key LIKE 'repo:%:updatedAt'").run()
+  setMeta('schemaVersion', SCHEMA_VERSION)
 }

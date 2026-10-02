@@ -23,6 +23,7 @@ import {
 } from './filters.ts'
 import { LaunchDialog } from './LaunchDialog.tsx'
 import { Details } from './Details.tsx'
+import { Overview } from './Overview.tsx'
 import { CommentIcon, IssueOpenedIcon, SyncIcon, TerminalIcon } from '@primer/octicons-react'
 import { CiIcon, ReviewIcon, StateIcon, Time, textColor } from './format.tsx'
 
@@ -249,6 +250,7 @@ function Sidebar({ items, filters, update }: { items: Item[]; filters: Filters; 
       <Single label="Author type" value={filters.who} counts={facet('who', (i) => [isMember(i) ? 'member' : 'community'])} onChange={(v) => update({ who: v as Filters['who'] })} />
       <Single label="Assignee" value={filters.assignee} counts={facet('assignee', (i) => (i.assignees.length ? i.assignees : [NONE]))} onChange={(assignee) => update({ assignee })} />
       <Single label="Review requested" value={filters.reviewer} counts={facet('reviewer', (i) => i.reviewRequests)} onChange={(reviewer) => update({ reviewer })} />
+      <Single label="First review" value={filters.firstReview} counts={facet('firstReview', prOnly((i) => (i.firstReviewAt ? 'yes' : 'no')))} onChange={(v) => update({ firstReview: v as Filters['firstReview'] })} />
       <Single label="Draft" value={filters.draft} counts={facet('draft', prOnly((i) => (i.draft ? 'yes' : 'no')))} onChange={(v) => update({ draft: v as Filters['draft'] })} />
       <Single label="Review decision" value={filters.review} counts={facet('review', prOnly((i) => i.reviewDecision))} onChange={(review) => update({ review })} />
       <Single label="CI" value={filters.ci} counts={facet('ci', prOnly((i) => i.ci))} onChange={(ci) => update({ ci })} />
@@ -260,6 +262,14 @@ function Sidebar({ items, filters, update }: { items: Item[]; filters: Filters; 
         Not updated for (days)
         <input type="number" min={0} value={filters.staleFor || ''} onChange={(e) => update({ staleFor: Number(e.target.value) }, true)} />
       </label>
+      <label>
+        Created
+        <input placeholder="2026-01-01..2026-01-31" value={filters.created} onChange={(e) => update({ created: e.target.value.trim() }, true)} />
+      </label>
+      <label>
+        Closed
+        <input placeholder="2026-01-01..2026-01-31" value={filters.closed} onChange={(e) => update({ closed: e.target.value.trim() }, true)} />
+      </label>
       <button type="button" onClick={() => update({ ...DEFAULT_FILTERS, sort: filters.sort, item: filters.item })}>
         Reset filters
       </button>
@@ -267,9 +277,10 @@ function Sidebar({ items, filters, update }: { items: Item[]; filters: Filters; 
   )
 }
 
-export function App() {
+type Data = ReturnType<typeof useData>
+
+function Items({ data, error, sync, replaceItem }: Data) {
   const [filters, update] = useUrlFilters()
-  const { data, error, sync, replaceItem } = useData()
   const items = data?.items ?? EMPTY
   const filtered = useMemo(() => filterItems(items, filters), [items, filters])
   const sorting = useMemo(() => toSorting(filters.sort), [filters.sort])
@@ -319,9 +330,19 @@ export function App() {
   const closeDetails = useCallback(() => update({ item: '' }), [update])
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.ctrlKey || e.metaKey || e.altKey || document.querySelector('dialog[open]')) return
+      if (e.ctrlKey || e.metaKey || e.altKey || document.querySelector('dialog[open], :popover-open')) return
       if (e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable]')) return
       if (e.key === 'Escape' && filters.item) return closeDetails()
+      if (filters.item && e.key === 'l') {
+        const item = items.find((i) => i.id === filters.item)
+        return item && setLaunchItem(item)
+      }
+      const shortcut = filters.item && document.querySelector<HTMLElement>(`aside.details [data-shortcut="${CSS.escape(e.key)}"]`)
+      if (shortcut) {
+        e.preventDefault()
+        shortcut.focus()
+        return shortcut.click()
+      }
       const step = { j: 1, k: -1 }[e.key]
       if (!step || !rows.length) return
       const current = rows.findIndex((r) => r.id === filters.item)
@@ -335,25 +356,11 @@ export function App() {
 
   return (
     <div className={filters.item ? 'layout with-details' : 'layout'}>
-      <header>
-        <h1>{data?.org ?? 'GitHub org'}</h1>
+      <Header data={data} sync={sync}>
         <output>
           {filtered.length} of {items.length} items
         </output>
-        <span className="sync">
-          {data?.sync.error && <span className="error">Sync error: {data.sync.error}</span>}
-          {data?.sync.lastSyncAt ? (
-            <>
-              Last sync <Time iso={data.sync.lastSyncAt} />
-            </>
-          ) : (
-            'Never synced'
-          )}
-          <button type="button" onClick={sync} disabled={!data || data.sync.running}>
-            <SyncIcon className={data?.sync.running ? 'spin' : undefined} /> {data?.sync.running ? 'Syncing…' : 'Sync'}
-          </button>
-        </span>
-      </header>
+      </Header>
       {error && <p className="error" role="alert">Failed to load: {error}</p>}
       <Sidebar items={items} filters={filters} update={update} />
       <main ref={scrollRef}>
@@ -400,6 +407,78 @@ export function App() {
         <Details key={filters.item} id={filters.item} listItem={items.find((i) => i.id === filters.item)} onItem={replaceItem} onClose={closeDetails} />
       )}
       {launchItem && <LaunchDialog key={launchItem.id} item={launchItem} onClose={() => setLaunchItem(null)} />}
+    </div>
+  )
+}
+
+const PAGES = [
+  ['/', 'Items'],
+  ['/overview', 'Overview'],
+] as const
+
+function Header({ data, sync, children }: Pick<Data, 'data' | 'sync'> & { children?: ReactNode }) {
+  return (
+    <header>
+      <h1>{data?.org ?? 'GitHub org'}</h1>
+      <nav className="tabs">
+        {PAGES.map(([path, label]) => (
+          <a key={path} href={path} aria-current={location.pathname === path ? 'page' : undefined}>
+            {label}
+          </a>
+        ))}
+      </nav>
+      {children}
+      <span className="sync">
+        {data?.sync.error && <span className="error">Sync error: {data.sync.error}</span>}
+        {data?.sync.lastSyncAt ? (
+          <>
+            Last sync <Time iso={data.sync.lastSyncAt} />
+          </>
+        ) : (
+          'Never synced'
+        )}
+        <button type="button" onClick={sync} disabled={!data || data.sync.running}>
+          <SyncIcon className={data?.sync.running ? 'spin' : undefined} /> {data?.sync.running ? 'Syncing…' : 'Sync'}
+        </button>
+      </span>
+    </header>
+  )
+}
+
+function useLocation() {
+  const [url, setUrl] = useState(() => location.pathname + location.search)
+  useEffect(() => {
+    const onPop = () => setUrl(location.pathname + location.search)
+    const onClick = (e: globalThis.MouseEvent) => {
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+      const a = (e.target as Element).closest?.('a')
+      if (!a || a.target || a.hasAttribute('download') || a.origin !== location.origin) return
+      e.preventDefault()
+      history.pushState(null, '', a.pathname + a.search)
+      dispatchEvent(new PopStateEvent('popstate'))
+    }
+    addEventListener('popstate', onPop)
+    addEventListener('click', onClick)
+    return () => {
+      removeEventListener('popstate', onPop)
+      removeEventListener('click', onClick)
+    }
+  }, [])
+  return new URL(url, location.origin)
+}
+
+export function App() {
+  const { pathname, search } = useLocation()
+  const data = useData()
+  if (pathname !== '/overview') return <Items {...data} />
+  const items = data.data?.items ?? EMPTY
+  return (
+    <div className="layout page">
+      <Header data={data.data} sync={data.sync} />
+      {data.error && <p className="error" role="alert">Failed to load: {data.error}</p>}
+      <main>
+        <Overview items={items} search={search} />
+      </main>
     </div>
   )
 }

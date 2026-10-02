@@ -4,7 +4,7 @@ import { extname, join, normalize, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { ItemsResponse, LaunchRequest } from '../shared/types.ts'
 import { allItems } from './db.ts'
-import { fetchDetails, parseAction, runAction } from './items.ts'
+import { fetchDetails, fetchRepoOptions, parseAction, runAction } from './items.ts'
 import { launch } from './launch.ts'
 import { HttpError, ORG, getSyncStatus, startSync } from './sync.ts'
 
@@ -86,6 +86,7 @@ async function serveStatic(pathname: string, res: ServerResponse): Promise<void>
 createServer(async (req, res) => {
   const { pathname } = new URL(req.url ?? '/', 'http://localhost')
   const itemRoute = pathname.match(/^\/api\/items\/([\w=-]{1,100})(\/actions)?$/)
+  const optionsRoute = pathname.match(/^\/api\/repos\/([^/]+)\/options$/)
   try {
     if (pathname.startsWith('/api/')) {
       if (!isLocal(req.headers.host) || (req.method === 'POST' && !isTrustedPost(req))) return sendJson(res, { error: 'Forbidden' }, 403)
@@ -96,6 +97,7 @@ createServer(async (req, res) => {
     }
     if (itemRoute && !itemRoute[2] && req.method === 'GET') return sendJson(res, await fetchDetails(itemRoute[1]))
     if (itemRoute?.[2] && req.method === 'POST') return sendJson(res, await runAction(itemRoute[1], parseAction(await readJson(req))))
+    if (optionsRoute && req.method === 'GET') return sendJson(res, await fetchRepoOptions(optionsRoute[1]))
     if (pathname === '/api/sync' && req.method === 'POST') return sendJson(res, startSync())
     if (pathname === '/api/launch' && req.method === 'POST') {
       const body = await readJson<LaunchRequest>(req)

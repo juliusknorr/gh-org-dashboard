@@ -5,10 +5,15 @@ import { getMeta, setMeta, upsertItems } from './db.ts'
 export const ORG = process.env.ORG ?? 'Euro-Office'
 const CONCURRENCY = 4
 const MAX_ATTEMPTS = 3
+const MIN_RATE_BUDGET = 500
+const SEARCH_OVERLAP_MS = 5 * 60 * 1000
+const SEARCH_RESULT_CAP = 1000
+const NEVER = new Date(0).toISOString()
 
 const token = process.env.GITHUB_TOKEN ?? execFileSync('gh', ['auth', 'token'], { encoding: 'utf8' }).trim()
 
 const status: SyncStatus = { running: false, lastSyncAt: getMeta('lastSyncAt'), error: null }
+const rateLimit = { remaining: Infinity, resetAt: 0 }
 
 export function getSyncStatus(): SyncStatus {
   return { ...status }
@@ -28,6 +33,15 @@ const graphqlErrorStatus: Record<string, number> = { NOT_FOUND: 404, FORBIDDEN: 
 
 type GraphQLResponse<T> = { data?: T; errors?: { message: string; type?: string }[] }
 
+export async function rest(method: string, path: string, body: unknown): Promise<void> {
+  const res = await fetch(`https://api.github.com${path}`, {
+    method,
+    headers: { authorization: `bearer ${token}`, accept: 'application/vnd.github+json', 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new HttpError(res.status >= 500 ? 502 : res.status, `GitHub HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`)
+}
+
 export async function graphql<T>(query: string, variables: Record<string, unknown>, maxAttempts = MAX_ATTEMPTS): Promise<T> {
   for (let attempt = 1; ; attempt++) {
     const res = await fetch('https://api.github.com/graphql', {
@@ -35,6 +49,10 @@ export async function graphql<T>(query: string, variables: Record<string, unknow
       headers: { authorization: `bearer ${token}`, 'content-type': 'application/json' },
       body: JSON.stringify({ query, variables }),
     })
+    if (res.headers.has('x-ratelimit-remaining')) {
+      rateLimit.remaining = Number(res.headers.get('x-ratelimit-remaining'))
+      rateLimit.resetAt = Number(res.headers.get('x-ratelimit-reset')) * 1000
+    }
     const retryable = res.status === 403 || res.status === 429 || res.status >= 500
     if (retryable && attempt < maxAttempts) {
       const waitSeconds = Number(res.headers.get('retry-after')) || 5 * attempt
@@ -82,6 +100,7 @@ export const COMMON_FIELDS = `
 
 export const PR_FIELDS = `
   isDraft reviewDecision
+  firstReviews: reviews(first: 10) { nodes { author { login } submittedAt } }
   reviewRequests(first: 20) { nodes { requestedReviewer { ... on User { login } ... on Team { slug } } } }
   commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }`
 
@@ -102,6 +121,7 @@ export type RawNode = {
   comments: { totalCount: number }
   isDraft?: boolean
   reviewDecision?: ReviewDecision
+  firstReviews?: { nodes: { author: { login: string } | null; submittedAt: string | null }[] }
   reviewRequests?: { nodes: { requestedReviewer: { login?: string; slug?: string } | null }[] }
   commits?: { nodes: { commit: { statusCheckRollup: { state: CiState } | null } }[] }
 }
@@ -131,6 +151,11 @@ export function toItem(repo: string, node: RawNode): Item {
     createdAt: node.createdAt,
     updatedAt: node.updatedAt,
     closedAt: node.closedAt,
+    firstReviewAt:
+      node.firstReviews?.nodes
+        .filter((r) => r.submittedAt && r.author?.login !== node.author?.login)
+        .map((r) => r.submittedAt!)
+        .sort()[0] ?? null,
   }
 }
 
@@ -162,13 +187,32 @@ async function syncRepo(repo: string): Promise<void> {
     .filter((d): d is string => d !== null)
     .sort()
     .at(-1)
-  if (newest) setMeta(key, newest)
+  setMeta(key, newest ?? since ?? NEVER)
 }
 
-async function runSync(): Promise<void> {
-  const started = Date.now()
-  const repos = await listRepos()
-  const errors: string[] = []
+async function searchSync(since: string): Promise<boolean> {
+  const from = new Date(Date.parse(since) - SEARCH_OVERLAP_MS).toISOString().replace(/\.\d+Z$/, 'Z')
+  const query = `query($q: String!, $cursor: String) {
+    search(query: $q, type: ISSUE, first: 50, after: $cursor) {
+      issueCount pageInfo { hasNextPage endCursor }
+      nodes {
+        ... on Issue { repository { name } ${COMMON_FIELDS} }
+        ... on PullRequest { repository { name } ${COMMON_FIELDS} ${PR_FIELDS} }
+      }
+    }
+  }`
+  let cursor: string | null = null
+  do {
+    type SearchNode = RawNode & { repository: { name: string } }
+    const { search }: { search: Page<SearchNode> & { issueCount: number } } = await graphql(query, { q: `org:${ORG} updated:>=${from}`, cursor })
+    if (search.issueCount > SEARCH_RESULT_CAP) return false
+    upsertItems(search.nodes.map((n) => toItem(n.repository.name, n)))
+    cursor = search.pageInfo.hasNextPage ? search.pageInfo.endCursor : null
+  } while (cursor)
+  return true
+}
+
+async function syncRepos(repos: string[], errors: string[]): Promise<void> {
   let next = 0
   const worker = async () => {
     while (next < repos.length) {
@@ -182,10 +226,27 @@ async function runSync(): Promise<void> {
     }
   }
   await Promise.all(Array.from({ length: CONCURRENCY }, worker))
+}
+
+async function runSync(): Promise<void> {
+  if (rateLimit.remaining < MIN_RATE_BUDGET && Date.now() < rateLimit.resetAt) {
+    status.error = `GitHub rate limit low (${rateLimit.remaining} left), sync paused until ${new Date(rateLimit.resetAt).toISOString()}`
+    return
+  }
+  const started = Date.now()
+  const repos = await listRepos()
+  const errors: string[] = []
+  const unsynced = repos.filter((repo) => !getMeta(`repo:${repo}:updatedAt`))
+  await syncRepos(unsynced, errors)
+  const searchedAt = getMeta('searchedAt')
+  const viaSearch = searchedAt !== null && (await searchSync(searchedAt))
+  if (!viaSearch) await syncRepos(repos.filter((r) => !unsynced.includes(r)), errors)
+  if (!errors.length) setMeta('searchedAt', new Date(started).toISOString())
   status.error = errors.length ? errors.join('\n') : null
   status.lastSyncAt = new Date().toISOString()
   setMeta('lastSyncAt', status.lastSyncAt)
-  console.log(`synced ${repos.length} repos in ${((Date.now() - started) / 1000).toFixed(1)}s${errors.length ? `, ${errors.length} failed` : ''}`)
+  const mode = viaSearch ? 'search' : `${unsynced.length} full`
+  console.log(`synced ${repos.length} repos (${mode}) in ${((Date.now() - started) / 1000).toFixed(1)}s, ${rateLimit.remaining} API points left${errors.length ? `, ${errors.length} failed` : ''}`)
 }
 
 export function startSync(): SyncStatus {

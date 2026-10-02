@@ -24,6 +24,7 @@ export interface Item {
   createdAt: string
   updatedAt: string
   closedAt: string | null
+  firstReviewAt: string | null
 }
 
 export interface SyncStatus {
@@ -102,3 +103,12 @@ export type ItemAction =
   | { type: 'close'; reason: 'COMPLETED' | 'NOT_PLANNED'; comment?: string }
   | { type: 'duplicate'; of: string; comment?: string }
   | { type: 'merge'; method: MergeMethod; expectedHeadOid: string; force: boolean }
+  | { type: 'labels'; add: string[]; remove: string[] }
+  | { type: 'assignees'; add: string[]; remove: string[] }
+  | { type: 'reviewers'; add: string[]; remove: string[] }
+
+export interface RepoOptions {
+  labels: { name: string; color: string; description: string | null }[]
+  assignees: string[]
+  teams: string[]
+}

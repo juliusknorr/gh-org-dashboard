@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type SyntheticEvent } from 'react'
-import type { Item, ItemAction, ItemDetails, MergeMethod, PrDetails, Review } from '../../shared/types.ts'
+import type { Item, ItemAction, ItemDetails, MergeMethod, PrDetails, RepoOptions, Review } from '../../shared/types.ts'
 import { mergeBlockers } from '../../shared/merge.ts'
 import {
   AlertIcon,
@@ -14,12 +14,32 @@ import {
   MilestoneIcon,
   PeopleIcon,
   PersonIcon,
+  QuestionIcon,
   SkipIcon,
   TagIcon,
   XIcon,
   type Icon,
 } from '@primer/octicons-react'
 import { CiIcon, ReviewIcon, StateIcon, Time, textColor } from './format.tsx'
+import { Picker, type PickerOption } from './Picker.tsx'
+
+const SHORTCUTS = 'Shortcuts: j/k next/previous, o open on GitHub, c comment, l launch Claude, a assignees, Shift+L labels, Esc close'
+
+const repoOptions = new Map<string, Promise<RepoOptions>>()
+function loadRepoOptions(repo: string): Promise<RepoOptions> {
+  if (!repoOptions.has(repo)) {
+    const options = fetch(`/api/repos/${encodeURIComponent(repo)}/options`).then(async (res) => {
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.error ?? `${res.status} ${res.statusText}`)
+      return json as RepoOptions
+    })
+    options.catch(() => repoOptions.delete(repo))
+    repoOptions.set(repo, options)
+  }
+  return repoOptions.get(repo)!
+}
+
+const users = (logins: string[]): PickerOption[] => logins.map((value) => ({ value }))
 
 const FRAME_CSS = `
 :root { color-scheme: light dark; --fg: #1f2328; --muted: #59636e; --border: #d1d9e0; --bg-alt: #f6f8fa; --accent: #0969da; }
@@ -76,13 +96,7 @@ const Term = ({ icon: Glyph, children }: { icon: Icon; children: string }) => (
   </dt>
 )
 
-const People = ({ icon, label, names }: { icon: Icon; label: string; names: string[] }) =>
-  names.length > 0 && (
-    <>
-      <Term icon={icon}>{label}</Term>
-      <dd>{names.join(', ')}</dd>
-    </>
-  )
+const None = () => <span className="muted">None</span>
 
 function PrInfo({ pr }: { pr: PrDetails }) {
   return (
@@ -189,7 +203,7 @@ function Actions({ details, run }: { details: ItemDetails; run: (a: ItemAction) 
       <h3>Actions</h3>
       <label>
         Comment
-        <textarea rows={4} value={comment} onChange={(e) => setComment(e.target.value)} />
+        <textarea rows={4} value={comment} onChange={(e) => setComment(e.target.value)} data-shortcut="c" title="Comment (c)" />
       </label>
       <div className="row">
         <button type="button" disabled={busy || !body} onClick={() => submit({ type: 'comment', body })}>
@@ -310,13 +324,16 @@ export function Details({ id, listItem, onItem, onClose }: { id: string; listIte
       <div className="details-head">
         <h2 ref={headingRef} tabIndex={-1}>
           {item ? (
-            <a href={item.url} target="_blank" rel="noreferrer">
+            <a href={item.url} target="_blank" rel="noreferrer" data-shortcut="o" title="Open on GitHub (o)">
               {item.title}
             </a>
           ) : (
             'Loading…'
           )}
         </h2>
+        <span className="hint" title={SHORTCUTS} aria-label={SHORTCUTS} role="img">
+          <QuestionIcon />
+        </span>
         <button type="button" className="icon-button" onClick={onClose} aria-label="Close details" title="Close (Esc)">
           <XIcon />
         </button>
@@ -337,20 +354,48 @@ export function Details({ id, listItem, onItem, onClose }: { id: string; listIte
             <dd>
               <Time iso={item.updatedAt} />
             </dd>
-            {item.labels.length > 0 && (
-              <>
-                <Term icon={TagIcon}>Labels</Term>
-                <dd>
-                  {item.labels.map((l) => (
-                    <span key={l.name} className="chip" style={{ background: `#${l.color}`, color: textColor(l.color) }}>
-                      {l.name}
-                    </span>
-                  ))}
-                </dd>
-              </>
+            <Picker
+              icon={TagIcon}
+              label="Labels"
+              shortcut="L"
+              selected={item.labels.map((l) => l.name)}
+              load={async () => (await loadRepoOptions(item.repo)).labels.map((l) => ({ value: l.name, color: l.color, description: l.description }))}
+              onApply={(add, remove) => run({ type: 'labels', add, remove })}
+            >
+              {item.labels.length ? (
+                item.labels.map((l) => (
+                  <span key={l.name} className="chip" style={{ background: `#${l.color}`, color: textColor(l.color) }}>
+                    {l.name}
+                  </span>
+                ))
+              ) : (
+                <None />
+              )}
+            </Picker>
+            <Picker
+              icon={PeopleIcon}
+              label="Assignees"
+              shortcut="a"
+              selected={item.assignees}
+              load={async () => users((await loadRepoOptions(item.repo)).assignees)}
+              onApply={(add, remove) => run({ type: 'assignees', add, remove })}
+            >
+              {item.assignees.join(', ') || <None />}
+            </Picker>
+            {item.type === 'pr' && (
+              <Picker
+                icon={EyeIcon}
+                label="Review requests"
+                selected={item.reviewRequests}
+                load={async () => {
+                  const { assignees, teams } = await loadRepoOptions(item.repo)
+                  return users([...assignees.filter((a) => a !== item.author), ...teams.map((t) => `team:${t}`)])
+                }}
+                onApply={(add, remove) => run({ type: 'reviewers', add, remove })}
+              >
+                {item.reviewRequests.join(', ') || <None />}
+              </Picker>
             )}
-            <People icon={PeopleIcon} label="Assignees" names={item.assignees} />
-            <People icon={EyeIcon} label="Review requests" names={item.reviewRequests} />
             {item.milestone && (
               <>
                 <Term icon={MilestoneIcon}>Milestone</Term>

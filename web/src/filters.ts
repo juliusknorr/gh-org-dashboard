@@ -14,6 +14,9 @@ export interface Filters {
   who: '' | 'member' | 'community'
   updatedWithin: number
   staleFor: number
+  created: string
+  closed: string
+  firstReview: '' | 'yes' | 'no'
   q: string
   sort: string
   item: string
@@ -39,12 +42,23 @@ export const DEFAULT_FILTERS: Filters = {
   who: '',
   updatedWithin: 0,
   staleFor: 0,
+  created: '',
+  closed: '',
+  firstReview: '',
   q: '',
   sort: '-updated',
   item: '',
 }
 
 export const isMember = (item: Item) => MEMBER_ASSOCIATIONS.has(item.authorAssociation)
+
+function inRange(iso: string | null, range: string) {
+  if (!range) return true
+  if (!iso) return false
+  const [from, to = from] = range.split('..')
+  const day = iso.slice(0, 10)
+  return (!from || day >= from) && (!to || day <= to)
+}
 
 export function matches(item: Item, f: Filters, now = Date.now()): boolean {
   const age = now - Date.parse(item.updatedAt)
@@ -65,6 +79,9 @@ export function matches(item: Item, f: Filters, now = Date.now()): boolean {
     (!f.who || isMember(item) === (f.who === 'member')) &&
     (!f.updatedWithin || age <= f.updatedWithin * DAY) &&
     (!f.staleFor || age >= f.staleFor * DAY) &&
+    inRange(item.createdAt, f.created) &&
+    inRange(item.closedAt, f.closed) &&
+    (!f.firstReview || (isPr && !!item.firstReviewAt === (f.firstReview === 'yes'))) &&
     (!q || `${item.title} ${item.repo}#${item.number}`.toLowerCase().includes(q))
   )
 }

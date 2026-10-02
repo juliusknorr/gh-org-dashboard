@@ -27,12 +27,13 @@ const item = (over: Partial<Item>): Item => ({
   createdAt: daysAgo(30),
   updatedAt: daysAgo(1),
   closedAt: null,
+  firstReviewAt: null,
   ...over,
 })
 
 const items = [
   item({ number: 1, title: 'Crash on login', labels: [{ name: 'bug', color: 'd73a4a' }] }),
-  item({ number: 2, type: 'pr', state: 'merged', ci: 'SUCCESS', reviewDecision: 'APPROVED' }),
+  item({ number: 2, type: 'pr', state: 'merged', ci: 'SUCCESS', reviewDecision: 'APPROVED', firstReviewAt: daysAgo(3), closedAt: daysAgo(2) }),
   item({ number: 3, type: 'pr', repo: 'text', draft: true, authorAssociation: 'NONE', author: 'bob', assignees: ['carol'], reviewRequests: ['dave'] }),
   item({ number: 4, updatedAt: daysAgo(100), labels: [{ name: 'bug', color: 'd73a4a' }, { name: 'stale', color: 'eeeeee' }] }),
 ]
@@ -60,6 +61,11 @@ test('filters', () => {
   assert.deepEqual(numbers({ q: 'LOGIN' }), [1])
   assert.deepEqual(numbers({ q: 'text#3' }), [3])
   assert.deepEqual(numbers({ item: items[0].id }), [1, 3, 4])
+  assert.deepEqual(numbers({ state: [], firstReview: 'yes' }), [2])
+  assert.deepEqual(numbers({ state: [], firstReview: 'no' }), [3])
+  assert.deepEqual(numbers({ created: `${daysAgo(30).slice(0, 10)}..` }), [1, 3, 4])
+  assert.deepEqual(numbers({ created: `..${daysAgo(31).slice(0, 10)}` }), [])
+  assert.deepEqual(numbers({ state: [], closed: daysAgo(2).slice(0, 10) }), [2])
 })
 
 test('url round-trip', () => {

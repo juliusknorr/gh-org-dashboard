@@ -21,6 +21,10 @@ import {
   serializeFilters,
   type Filters,
 } from './filters.ts'
+import { LaunchDialog } from './LaunchDialog.tsx'
+import { Details } from './Details.tsx'
+import { CommentIcon, IssueOpenedIcon, SyncIcon, TerminalIcon } from '@primer/octicons-react'
+import { CiIcon, ReviewIcon, StateIcon, Time, textColor } from './format.tsx'
 
 const ROW_HEIGHT = 36
 const EMPTY: Item[] = []
@@ -32,31 +36,6 @@ const features = tableFeatures({
 })
 const col = createColumnHelper<typeof features, Item>()
 
-const relative = new Intl.RelativeTimeFormat('en', { numeric: 'auto' })
-const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
-  ['year', 31_536_000],
-  ['month', 2_592_000],
-  ['week', 604_800],
-  ['day', 86_400],
-  ['hour', 3_600],
-  ['minute', 60],
-]
-function timeAgo(iso: string) {
-  const seconds = (Date.parse(iso) - Date.now()) / 1000
-  const [unit, size] = UNITS.find(([, size]) => Math.abs(seconds) >= size) ?? ['second', 1]
-  return relative.format(Math.round(seconds / size), unit)
-}
-const Time = ({ iso }: { iso: string }) => (
-  <time dateTime={iso} title={new Date(iso).toLocaleString()}>
-    {timeAgo(iso)}
-  </time>
-)
-
-function textColor(hex: string) {
-  const [r, g, b] = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16))
-  return r * 0.299 + g * 0.587 + b * 0.114 > 150 ? '#000' : '#fff'
-}
-
 const FilterButton = ({ filter, value, children }: { filter: 'author' | 'repo' | 'label'; value: string; children?: ReactNode }) => (
   <button type="button" className="link" data-filter={filter} data-value={value} title={`Filter by ${filter} ${value}`}>
     {children ?? value}
@@ -64,10 +43,19 @@ const FilterButton = ({ filter, value, children }: { filter: 'author' | 'repo' |
 )
 
 const columns = col.columns([
+  col.display({
+    id: 'launch',
+    header: () => <span className="sr-only">Claude</span>,
+    cell: (c) => (
+      <button type="button" className="icon-button" data-launch={c.row.original.id} title="Launch Claude Code" aria-label="Launch Claude Code">
+        <TerminalIcon />
+      </button>
+    ),
+  }),
   col.accessor((i) => (i.type === 'pr' ? (i.draft ? 'PR draft' : 'PR') : 'Issue'), {
     id: 'type',
-    header: 'Type',
-    cell: (c) => <span className={`badge state-${c.row.original.state}`}>{c.getValue()}</span>,
+    header: () => <IssueOpenedIcon aria-label="Type" />,
+    cell: (c) => <StateIcon item={c.row.original} />,
   }),
   col.accessor((i) => `${i.repo}#${String(i.number).padStart(7, '0')}`, {
     id: 'ref',
@@ -113,19 +101,27 @@ const columns = col.columns([
   }),
   col.display({
     id: 'status',
-    header: 'Review / CI',
+    header: 'Status',
     cell: (c) => {
       const { type, reviewDecision, ci } = c.row.original
       if (type !== 'pr') return null
       return (
         <>
-          {reviewDecision && <span className={`badge review-${reviewDecision}`}>{reviewDecision.replace('_', ' ').toLowerCase()}</span>}
-          {ci && <span className={`badge ci-${ci}`}>{ci.toLowerCase()}</span>}
+          {reviewDecision && <ReviewIcon state={reviewDecision} />}
+          {ci && <CiIcon ci={ci} />}
         </>
       )
     },
   }),
-  col.accessor('comments', { header: 'Comments' }),
+  col.accessor('comments', {
+    header: () => <CommentIcon aria-label="Comments" />,
+    cell: (c) =>
+      c.getValue() > 0 && (
+        <>
+          <CommentIcon /> {c.getValue()}
+        </>
+      ),
+  }),
   col.accessor((i) => Date.parse(i.createdAt), { id: 'created', header: 'Created', cell: (c) => <Time iso={c.row.original.createdAt} /> }),
   col.accessor((i) => Date.parse(i.updatedAt), { id: 'updated', header: 'Updated', cell: (c) => <Time iso={c.row.original.updatedAt} /> }),
 ])
@@ -166,7 +162,7 @@ function useData() {
   }, [])
   const sync = useCallback(async () => {
     try {
-      const res = await fetch('/api/sync', { method: 'POST' })
+      const res = await fetch('/api/sync', { method: 'POST', headers: { 'content-type': 'application/json' } })
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
       const status: SyncStatus = await res.json()
       setData((d) => d && { ...d, sync: status })
@@ -175,6 +171,10 @@ function useData() {
       setError(String(e))
     }
   }, [load])
+  const replaceItem = useCallback(
+    (item: Item) => setData((d) => d && { ...d, items: d.items.map((i) => (i.id === item.id ? item : i)) }),
+    [],
+  )
   useEffect(() => void load(), [load])
   const running = data?.sync.running
   useEffect(() => {
@@ -182,7 +182,7 @@ function useData() {
     const timer = setInterval(load, 2000)
     return () => clearInterval(timer)
   }, [running, load])
-  return { data, error, sync }
+  return { data, error, sync, replaceItem }
 }
 
 type Counts = [string, number][]
@@ -260,7 +260,7 @@ function Sidebar({ items, filters, update }: { items: Item[]; filters: Filters; 
         Not updated for (days)
         <input type="number" min={0} value={filters.staleFor || ''} onChange={(e) => update({ staleFor: Number(e.target.value) }, true)} />
       </label>
-      <button type="button" onClick={() => update({ ...DEFAULT_FILTERS, sort: filters.sort })}>
+      <button type="button" onClick={() => update({ ...DEFAULT_FILTERS, sort: filters.sort, item: filters.item })}>
         Reset filters
       </button>
     </aside>
@@ -269,7 +269,7 @@ function Sidebar({ items, filters, update }: { items: Item[]; filters: Filters; 
 
 export function App() {
   const [filters, update] = useUrlFilters()
-  const { data, error, sync } = useData()
+  const { data, error, sync, replaceItem } = useData()
   const items = data?.items ?? EMPTY
   const filtered = useMemo(() => filterItems(items, filters), [items, filters])
   const sorting = useMemo(() => toSorting(filters.sort), [filters.sort])
@@ -294,19 +294,47 @@ export function App() {
     getScrollElement: () => scrollRef.current,
     estimateSize: () => ROW_HEIGHT,
     overscan: 10,
+    scrollMargin: ROW_HEIGHT,
+    scrollPaddingStart: ROW_HEIGHT,
   })
 
-  const addFilter = (e: MouseEvent) => {
+  const [launchItem, setLaunchItem] = useState<Item | null>(null)
+
+  const onTableClick = (e: MouseEvent) => {
+    const launchId = (e.target as HTMLElement).closest<HTMLElement>('[data-launch]')?.dataset.launch
+    if (launchId) return setLaunchItem(items.find((i) => i.id === launchId) ?? null)
     const target = (e.target as HTMLElement).closest<HTMLElement>('[data-filter]')
     const { filter, value } = target?.dataset ?? {}
-    if (!value) return
-    if (filter === 'author') update({ author: value })
-    if (filter === 'repo' && !filters.repo.includes(value)) update({ repo: [...filters.repo, value] })
-    if (filter === 'label' && !filters.label.includes(value)) update({ label: [...filters.label, value] })
+    if (value) {
+      if (filter === 'author') update({ author: value })
+      if (filter === 'repo' && !filters.repo.includes(value)) update({ repo: [...filters.repo, value] })
+      if (filter === 'label' && !filters.label.includes(value)) update({ label: [...filters.label, value] })
+      return
+    }
+    if ((e.target as HTMLElement).closest('a, button, input, select, textarea')) return
+    const rowId = (e.target as HTMLElement).closest<HTMLElement>('tr[data-id]')?.dataset.id
+    if (rowId && rowId !== filters.item) update({ item: rowId })
   }
 
+  const closeDetails = useCallback(() => update({ item: '' }), [update])
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey || document.querySelector('dialog[open]')) return
+      if (e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable]')) return
+      if (e.key === 'Escape' && filters.item) return closeDetails()
+      const step = { j: 1, k: -1 }[e.key]
+      if (!step || !rows.length) return
+      const current = rows.findIndex((r) => r.id === filters.item)
+      const next = current < 0 ? (step > 0 ? 0 : rows.length - 1) : Math.min(rows.length - 1, Math.max(0, current + step))
+      update({ item: rows[next].id }, true)
+      virtualizer.scrollToIndex(next)
+    }
+    addEventListener('keydown', onKey)
+    return () => removeEventListener('keydown', onKey)
+  })
+
   return (
-    <div className="layout">
+    <div className={filters.item ? 'layout with-details' : 'layout'}>
       <header>
         <h1>{data?.org ?? 'GitHub org'}</h1>
         <output>
@@ -322,7 +350,7 @@ export function App() {
             'Never synced'
           )}
           <button type="button" onClick={sync} disabled={!data || data.sync.running}>
-            {data?.sync.running ? 'Syncing…' : 'Sync now'}
+            <SyncIcon className={data?.sync.running ? 'spin' : undefined} /> {data?.sync.running ? 'Syncing…' : 'Sync'}
           </button>
         </span>
       </header>
@@ -351,11 +379,11 @@ export function App() {
               </tr>
             ))}
           </thead>
-          <tbody style={{ height: virtualizer.getTotalSize() }} onClick={addFilter}>
+          <tbody style={{ height: virtualizer.getTotalSize() }} onClick={onTableClick}>
             {virtualizer.getVirtualItems().map((v) => {
               const row = rows[v.index]
               return (
-                <tr key={row.id} style={{ transform: `translateY(${v.start}px)` }}>
+                <tr key={row.id} data-id={row.id} aria-selected={row.id === filters.item} style={{ transform: `translateY(${v.start - ROW_HEIGHT}px)` }}>
                   {row.getAllCells().map((cell) => (
                     <td key={cell.id} className={`col-${cell.column.id}`}>
                       <table.FlexRender cell={cell} />
@@ -368,6 +396,10 @@ export function App() {
         </table>
         {data && !rows.length && <p className="empty">No items match these filters.</p>}
       </main>
+      {filters.item && (
+        <Details key={filters.item} id={filters.item} listItem={items.find((i) => i.id === filters.item)} onItem={replaceItem} onClose={closeDetails} />
+      )}
+      {launchItem && <LaunchDialog key={launchItem.id} item={launchItem} onClose={() => setLaunchItem(null)} />}
     </div>
   )
 }

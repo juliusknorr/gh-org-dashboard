@@ -16,6 +16,7 @@ export interface Filters {
   staleFor: number
   q: string
   sort: string
+  item: string
 }
 
 export const NONE = 'none'
@@ -40,6 +41,7 @@ export const DEFAULT_FILTERS: Filters = {
   staleFor: 0,
   q: '',
   sort: '-updated',
+  item: '',
 }
 
 export const isMember = (item: Item) => MEMBER_ASSOCIATIONS.has(item.authorAssociation)

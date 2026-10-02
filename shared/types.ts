@@ -37,3 +37,68 @@ export interface ItemsResponse {
   items: Item[]
   sync: SyncStatus
 }
+
+export interface LaunchRequest {
+  id: string
+  prompt: string
+  worktree: boolean
+  remoteControl: boolean
+  dryRun?: boolean
+}
+
+export interface LaunchResponse {
+  command: string
+  dir: string
+  launched: boolean
+}
+
+export type MergeMethod = 'MERGE' | 'SQUASH' | 'REBASE'
+
+export interface Comment {
+  author: string | null
+  createdAt: string
+  bodyHTML: string
+  url: string
+}
+
+export interface Review {
+  author: string | null
+  state: 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'DISMISSED' | 'PENDING'
+  submittedAt: string | null
+}
+
+export interface Check {
+  name: string
+  conclusion: string | null
+  url: string | null
+}
+
+export interface PrDetails {
+  headOid: string
+  headRef: string
+  baseRef: string
+  mergeable: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN'
+  checks: Check[]
+  reviews: Review[]
+  mergeMethods: MergeMethod[]
+  defaultMergeMethod: MergeMethod
+  viewerCanMergeAsAdmin: boolean
+  additions: number
+  deletions: number
+  changedFiles: number
+}
+
+export interface ItemDetails {
+  item: Item
+  bodyHTML: string
+  comments: Comment[]
+  totalComments: number
+  viewerCanClose: boolean
+  pr: PrDetails | null
+}
+
+export type ItemAction =
+  | { type: 'comment'; body: string }
+  | { type: 'close'; reason: 'COMPLETED' | 'NOT_PLANNED'; comment?: string }
+  | { type: 'duplicate'; of: string; comment?: string }
+  | { type: 'merge'; method: MergeMethod; expectedHeadOid: string; force: boolean }

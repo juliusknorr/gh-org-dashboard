@@ -5,7 +5,7 @@ import type { Item } from '../shared/types.ts'
 const dataDir = new URL('../data/', import.meta.url)
 mkdirSync(dataDir, { recursive: true })
 
-const db = new DatabaseSync(new URL('dashboard.db', dataDir).pathname)
+const db = new DatabaseSync(new URL('dashboard.db', dataDir).pathname, { timeout: 5000 })
 db.exec(`
   PRAGMA journal_mode = WAL;
   CREATE TABLE IF NOT EXISTS items (id TEXT PRIMARY KEY, repo TEXT NOT NULL, updated_at TEXT NOT NULL, json TEXT NOT NULL);

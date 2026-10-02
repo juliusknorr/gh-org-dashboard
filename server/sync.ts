@@ -14,9 +14,21 @@ export function getSyncStatus(): SyncStatus {
   return { ...status }
 }
 
-type GraphQLResponse<T> = { data?: T; errors?: { message: string }[] }
+export class HttpError extends Error {
+  status: number
+  extra: Record<string, unknown>
+  constructor(status: number, message: string, extra: Record<string, unknown> = {}) {
+    super(message)
+    this.status = status
+    this.extra = extra
+  }
+}
 
-async function graphql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
+const graphqlErrorStatus: Record<string, number> = { NOT_FOUND: 404, FORBIDDEN: 403 }
+
+type GraphQLResponse<T> = { data?: T; errors?: { message: string; type?: string }[] }
+
+export async function graphql<T>(query: string, variables: Record<string, unknown>, maxAttempts = MAX_ATTEMPTS): Promise<T> {
   for (let attempt = 1; ; attempt++) {
     const res = await fetch('https://api.github.com/graphql', {
       method: 'POST',
@@ -24,7 +36,7 @@ async function graphql<T>(query: string, variables: Record<string, unknown>): Pr
       body: JSON.stringify({ query, variables }),
     })
     const retryable = res.status === 403 || res.status === 429 || res.status >= 500
-    if (retryable && attempt < MAX_ATTEMPTS) {
+    if (retryable && attempt < maxAttempts) {
       const waitSeconds = Number(res.headers.get('retry-after')) || 5 * attempt
       console.warn(`GitHub ${res.status}, retrying in ${waitSeconds}s`)
       await new Promise((resolve) => setTimeout(resolve, waitSeconds * 1000))
@@ -33,10 +45,12 @@ async function graphql<T>(query: string, variables: Record<string, unknown>): Pr
     if (!res.ok) {
       const reset = res.headers.get('x-ratelimit-reset')
       const resetInfo = res.headers.get('x-ratelimit-remaining') === '0' && reset ? ` (rate limited until ${new Date(Number(reset) * 1000).toISOString()})` : ''
-      throw new Error(`GitHub HTTP ${res.status}${resetInfo}: ${(await res.text()).slice(0, 200)}`)
+      throw new HttpError(res.status >= 500 ? 502 : res.status, `GitHub HTTP ${res.status}${resetInfo}: ${(await res.text()).slice(0, 200)}`)
     }
     const body = (await res.json()) as GraphQLResponse<T>
-    if (body.errors?.length) throw new Error(`GitHub GraphQL: ${body.errors.map((e) => e.message).join('; ')}`)
+    if (body.errors?.length) {
+      throw new HttpError(graphqlErrorStatus[body.errors[0].type ?? ''] ?? 422, `GitHub GraphQL: ${body.errors.map((e) => e.message).join('; ')}`)
+    }
     return body.data as T
   }
 }
@@ -58,7 +72,7 @@ async function listRepos(): Promise<string[]> {
   return names
 }
 
-const COMMON_FIELDS = `
+export const COMMON_FIELDS = `
   id number title url state createdAt updatedAt closedAt authorAssociation
   author { login }
   assignees(first: 20) { nodes { login } }
@@ -66,12 +80,12 @@ const COMMON_FIELDS = `
   milestone { title }
   comments { totalCount }`
 
-const PR_FIELDS = `
+export const PR_FIELDS = `
   isDraft reviewDecision
   reviewRequests(first: 20) { nodes { requestedReviewer { ... on User { login } ... on Team { slug } } } }
   commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }`
 
-type RawNode = {
+export type RawNode = {
   id: string
   number: number
   title: string
@@ -92,7 +106,7 @@ type RawNode = {
   commits?: { nodes: { commit: { statusCheckRollup: { state: CiState } | null } }[] }
 }
 
-function toItem(repo: string, node: RawNode): Item {
+export function toItem(repo: string, node: RawNode): Item {
   const isPr = node.isDraft !== undefined
   return {
     id: node.id,

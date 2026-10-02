@@ -59,6 +59,7 @@ test('filters', () => {
   assert.deepEqual(numbers({ updatedWithin: 7 }), [1, 3])
   assert.deepEqual(numbers({ q: 'LOGIN' }), [1])
   assert.deepEqual(numbers({ q: 'text#3' }), [3])
+  assert.deepEqual(numbers({ item: items[0].id }), [1, 3, 4])
 })
 
 test('url round-trip', () => {
@@ -68,6 +69,9 @@ test('url round-trip', () => {
   assert.deepEqual(parseFilters(serializeFilters(f)), f)
   assert.deepEqual(parseFilters('?state=closed&state=merged&staleFor=abc').state, ['closed', 'merged'])
   assert.equal(parseFilters('?staleFor=abc').staleFor, 0)
+  const open = { ...f, item: 'I_kwDO/1' }
+  assert.deepEqual(parseFilters(serializeFilters(open)), open)
+  assert.equal(parseFilters('?item=abc').item, 'abc')
 })
 
 test('countBy', () => {

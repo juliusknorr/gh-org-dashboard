@@ -3,10 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "server": "node --watch server/index.ts",
+    "server": "node --env-file-if-exists=.env --watch server/index.ts",
     "dev": "vite web",
     "build": "vite build web",
-    "start": "node server/index.ts",
+    "start": "node --env-file-if-exists=.env server/index.ts",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
@@ -18,6 +18,7 @@
     "vite": "^8.3.2"
   },
   "dependencies": {
+    "@primer/octicons-react": "^19.38.0",
     "@tanstack/react-table": "^9.2.4",
     "@tanstack/react-virtual": "^3.14.13",
     "react": "^19.3.0",

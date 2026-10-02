@@ -10,6 +10,7 @@ import {
   IssueClosedIcon,
   IssueOpenedIcon,
   XIcon,
+  VerifiedIcon,
   type Icon,
 } from '@primer/octicons-react'
 import type { CiState, Item, ReviewDecision } from '../../shared/types.ts'
@@ -62,7 +63,7 @@ export const CiIcon = ({ ci }: { ci: string }) => (
   <Labeled icon={CI_ICONS[ci as NonNullable<CiState>] ?? DotFillIcon} label={`CI ${ci.toLowerCase()}`} className={`ci-${ci}`} />
 )
 
-const REVIEW_ICONS: Record<NonNullable<ReviewDecision>, Icon> = { APPROVED: CheckIcon, CHANGES_REQUESTED: FileDiffIcon, REVIEW_REQUIRED: EyeIcon }
+const REVIEW_ICONS: Record<NonNullable<ReviewDecision>, Icon> = { APPROVED: VerifiedIcon, CHANGES_REQUESTED: FileDiffIcon, REVIEW_REQUIRED: EyeIcon }
 export const ReviewIcon = ({ state }: { state: string }) => (
-  <Labeled icon={REVIEW_ICONS[state as NonNullable<ReviewDecision>] ?? EyeIcon} label={state.replace('_', ' ').toLowerCase()} className={`review-${state}`} />
+  <Labeled icon={REVIEW_ICONS[state as NonNullable<ReviewDecision>] ?? EyeIcon} label={`Review: ${state.replace('_', ' ').toLowerCase()}`} className={`review-${state}`} />
 )

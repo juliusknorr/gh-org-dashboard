@@ -162,3 +162,4 @@ button.icon-button:hover { color: var(--fg); border-color: var(--border); backgr
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
 .meta dt { display: inline-flex; align-items: center; gap: 0.3rem; }
+.slot { display: inline-flex; width: 18px; }

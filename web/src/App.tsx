@@ -107,8 +107,8 @@ const columns = col.columns([
       if (type !== 'pr') return null
       return (
         <>
-          {reviewDecision && <ReviewIcon state={reviewDecision} />}
-          {ci && <CiIcon ci={ci} />}
+          <span className="slot">{reviewDecision && <ReviewIcon state={reviewDecision} />}</span>
+          <span className="slot">{ci && <CiIcon ci={ci} />}</span>
         </>
       )
     },

@@ -24,6 +24,7 @@ import {
 import { LaunchDialog } from './LaunchDialog.tsx'
 import { Details } from './Details.tsx'
 import { Overview } from './Overview.tsx'
+import { Team } from './Team.tsx'
 import { CommentIcon, IssueOpenedIcon, SyncIcon, TerminalIcon } from '@primer/octicons-react'
 import { CiIcon, ReviewIcon, StateIcon, Time, textColor } from './format.tsx'
 
@@ -414,6 +415,7 @@ function Items({ data, error, sync, replaceItem }: Data) {
 const PAGES = [
   ['/', 'Items'],
   ['/overview', 'Overview'],
+  ['/team', 'Team'],
 ] as const
 
 function Header({ data, sync, children }: Pick<Data, 'data' | 'sync'> & { children?: ReactNode }) {
@@ -470,14 +472,14 @@ function useLocation() {
 export function App() {
   const { pathname, search } = useLocation()
   const data = useData()
-  if (pathname !== '/overview') return <Items {...data} />
+  if (pathname !== '/overview' && pathname !== '/team') return <Items {...data} />
   const items = data.data?.items ?? EMPTY
   return (
     <div className="layout page">
       <Header data={data.data} sync={data.sync} />
       {data.error && <p className="error" role="alert">Failed to load: {data.error}</p>}
       <main>
-        <Overview items={items} search={search} />
+        {pathname === '/team' ? <Team items={items} search={search} /> : <Overview items={items} search={search} />}
       </main>
     </div>
   )

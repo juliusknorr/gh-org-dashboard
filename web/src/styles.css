@@ -232,3 +232,51 @@ button.icon-button:hover { color: var(--fg); border-color: var(--border); backgr
 .ov-people { max-height: 24rem; overflow-y: auto; }
 .ov-people li { display: grid; grid-template-columns: minmax(8rem, 14rem) 3rem 1fr auto; gap: 0.5rem; align-items: center; }
 .ov-people .badge { margin-left: 0.3rem; }
+
+/* team */
+.team { padding: 1rem; display: flex; flex-direction: column; gap: 1rem; max-width: 1400px; }
+.team-filters { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
+.team-filters label { display: flex; gap: 0.4rem; align-items: center; font-weight: 600; }
+.team-filters select { font: inherit; font-weight: normal; padding: 0.2rem; }
+.team-name { margin: 0; font-size: 1.2rem; display: flex; gap: 0.5rem; align-items: center; }
+.team-name a { color: var(--muted); }
+.team-cards { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.team-card { flex: 1 1 140px; display: flex; flex-direction: column; padding: 0.5rem 0.75rem; border: 1px solid var(--border); border-radius: 8px; color: inherit; text-decoration: none; }
+a.team-card:hover, a.team-card:focus-visible { border-color: var(--accent); }
+.team-value { font-size: 1.5rem; font-weight: 600; color: inherit; text-decoration: none; }
+a.team-value:hover { text-decoration: underline; }
+.team-label { color: var(--muted); }
+.team-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 1rem; }
+.team-panel { border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; display: flex; flex-direction: column; gap: 0.6rem; min-width: 0; }
+.team-panel h3 { margin: 0; font-size: 1rem; display: flex; justify-content: space-between; gap: 1rem; }
+.team-panel h3 a { font-size: 0.85rem; font-weight: normal; }
+.team-panel p { margin: 0; }
+.team-wide { grid-column: 1 / -1; }
+.team-legend { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; color: var(--muted); font-size: 12px; }
+.team-key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; }
+.team-readout { margin-left: auto; color: var(--fg); }
+.team-opened { --c: var(--series-1, #2a78d6); }
+.team-merged { --c: var(--series-2, #eb6834); }
+.team-key, .team-bar span { background: var(--c); }
+.team-chart { position: relative; }
+.team-max { position: absolute; top: 0; left: 0; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.team-plot { display: flex; height: 140px; border-top: 1px solid var(--border); padding-top: 16px; margin-bottom: 18px; }
+.team-week { flex: 1; min-width: 0; display: flex; justify-content: center; gap: 2px; position: relative; border-bottom: 1px solid var(--border); }
+.team-week:hover, .team-week:focus-within { background: var(--bg-alt); }
+.team-bar { flex: 1; max-width: 12px; display: flex; align-items: flex-end; }
+.team-bar span { width: 100%; border-radius: 4px 4px 0 0; }
+.team-bar:hover span, .team-bar:focus-visible span { opacity: 0.75; }
+.team-tick { position: absolute; top: 100%; left: 0; padding-top: 2px; font-size: 11px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.team-table { display: table; min-width: 0; margin-top: 0.4rem; font-variant-numeric: tabular-nums; }
+.team-table :is(thead, tbody, tr, th, td) { display: revert; position: static; height: auto; width: auto; background: none; border: 0; }
+.team-table :is(th, td) { padding: 0.1rem 1rem 0.1rem 0; text-align: left; }
+.team-list, .team-repos { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.3rem; }
+.team-list li { display: grid; grid-template-columns: auto 1fr auto; gap: 0.4rem; align-items: center; }
+.team-list a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.team-list time { font-size: 12px; }
+.team-repos a { display: grid; grid-template-columns: minmax(6rem, 12rem) 1fr 2.5rem; gap: 0.5rem; align-items: center; color: inherit; text-decoration: none; }
+.team-repos a:hover .team-repo, .team-repos a:focus-visible .team-repo { text-decoration: underline; }
+.team-repo { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--accent); }
+.team-track { height: 12px; }
+.team-track span { display: block; height: 100%; min-width: 3px; background: var(--series-1, #2a78d6); border-radius: 0 4px 4px 0; }
+.team-count { text-align: right; font-variant-numeric: tabular-nums; }

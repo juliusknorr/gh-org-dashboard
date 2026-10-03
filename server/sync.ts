@@ -33,13 +33,14 @@ const graphqlErrorStatus: Record<string, number> = { NOT_FOUND: 404, FORBIDDEN: 
 
 type GraphQLResponse<T> = { data?: T; errors?: { message: string; type?: string }[] }
 
-export async function rest(method: string, path: string, body: unknown): Promise<void> {
+export async function rest(method: string, path: string, body: unknown): Promise<string> {
   const res = await fetch(`https://api.github.com${path}`, {
     method,
     headers: { authorization: `bearer ${token}`, accept: 'application/vnd.github+json', 'content-type': 'application/json' },
     body: JSON.stringify(body),
   })
   if (!res.ok) throw new HttpError(res.status >= 500 ? 502 : res.status, `GitHub HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`)
+  return res.text()
 }
 
 export async function graphql<T>(query: string, variables: Record<string, unknown>, maxAttempts = MAX_ATTEMPTS): Promise<T> {

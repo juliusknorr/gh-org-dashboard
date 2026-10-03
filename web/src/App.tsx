@@ -25,7 +25,7 @@ import { LaunchDialog } from './LaunchDialog.tsx'
 import { Details } from './Details.tsx'
 import { Overview } from './Overview.tsx'
 import { Team } from './Team.tsx'
-import { CommentIcon, IssueOpenedIcon, SyncIcon, TerminalIcon } from '@primer/octicons-react'
+import { CommentIcon, IssueOpenedIcon, SidebarCollapseIcon, SidebarExpandIcon, SyncIcon, TerminalIcon } from '@primer/octicons-react'
 import { CiIcon, ReviewIcon, StateIcon, Time, textColor } from './format.tsx'
 
 const ROW_HEIGHT = 36
@@ -283,7 +283,28 @@ function Sidebar({ items, filters, update }: { items: Item[]; filters: Filters; 
 
 type Data = ReturnType<typeof useData>
 
+const FILTERS_HIDDEN_KEY = 'filters-hidden'
+
+function useFiltersHidden() {
+  const [hidden, setHidden] = useState(() => {
+    try {
+      return localStorage.getItem(FILTERS_HIDDEN_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
+  const toggle = () =>
+    setHidden((h) => {
+      try {
+        localStorage.setItem(FILTERS_HIDDEN_KEY, h ? '0' : '1')
+      } catch {}
+      return !h
+    })
+  return [hidden, toggle] as const
+}
+
 function Items({ data, error, sync, replaceItem }: Data) {
+  const [filtersHidden, toggleFilters] = useFiltersHidden()
   const [filters, update] = useUrlFilters()
   const items = data?.items ?? EMPTY
   const filtered = useMemo(() => filterItems(items, filters), [items, filters])
@@ -359,14 +380,24 @@ function Items({ data, error, sync, replaceItem }: Data) {
   })
 
   return (
-    <div className={filters.item ? 'layout with-details' : 'layout'}>
+    <div className={['layout', filters.item && 'with-details', filtersHidden && 'filters-hidden'].filter(Boolean).join(' ')}>
       <Header data={data} sync={sync}>
+        <button
+          type="button"
+          className="icon-button"
+          onClick={toggleFilters}
+          aria-pressed={!filtersHidden}
+          aria-label={filtersHidden ? 'Show filters' : 'Hide filters'}
+          title={filtersHidden ? 'Show filters' : 'Hide filters'}
+        >
+          {filtersHidden ? <SidebarCollapseIcon /> : <SidebarExpandIcon />}
+        </button>
         <output>
           {filtered.length} of {items.length} items
         </output>
       </Header>
       {error && <p className="error" role="alert">Failed to load: {error}</p>}
-      <Sidebar items={items} filters={filters} update={update} />
+      {!filtersHidden && <Sidebar items={items} filters={filters} update={update} />}
       <main ref={scrollRef}>
         <table>
           <thead>

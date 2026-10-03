@@ -357,3 +357,10 @@ export async function runAction(id: string, action: ItemAction): Promise<ItemDet
   }
   return fetchDetails(id)
 }
+
+export async function renderMarkdown(body: unknown): Promise<{ html: string }> {
+  const { text, repo } = (body ?? {}) as Record<string, unknown>
+  if (typeof text !== 'string' || text.length > MAX_COMMENT_LENGTH) throw new HttpError(400, `text must be a string of at most ${MAX_COMMENT_LENGTH} characters`)
+  if (typeof repo !== 'string' || !REPO_NAME.test(repo)) throw new HttpError(400, 'Invalid repository name')
+  return { html: await rest('POST', '/markdown', { text, mode: 'gfm', context: `${ORG}/${repo}` }) }
+}

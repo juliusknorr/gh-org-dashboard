@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState, type SyntheticEvent } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type SyntheticEvent } from 'react'
 import type { Item, ItemAction, ItemDetails, MergeMethod, PrDetails, RepoOptions, Review } from '../../shared/types.ts'
 import { mergeBlockers } from '../../shared/merge.ts'
 import {
   AlertIcon,
-  ClockIcon,
+  ChecklistIcon,
   CommentIcon,
   DuplicateIcon,
   EyeIcon,
@@ -13,15 +13,19 @@ import {
   IssueClosedIcon,
   MilestoneIcon,
   PeopleIcon,
-  PersonIcon,
   QuestionIcon,
   SkipIcon,
   TagIcon,
+  TriangleDownIcon,
   XIcon,
   type Icon,
 } from '@primer/octicons-react'
 import { CiIcon, ReviewIcon, StateIcon, Time, textColor } from './format.tsx'
 import { Picker, type PickerOption } from './Picker.tsx'
+
+const WIDTH_KEY = 'details-width'
+const MIN_WIDTH = 360
+const DEFAULT_WIDTH = 480
 
 const SHORTCUTS = 'Shortcuts: j/k next/previous, o open on GitHub, c comment, l launch Claude, a assignees, Shift+L labels, Esc close'
 
@@ -90,51 +94,188 @@ const typeLabel = (i: Item) => (i.type === 'pr' ? (i.draft ? 'Draft PR' : 'PR') 
 const latestReviews = (reviews: Review[]) =>
   [...new Map(reviews.toSorted((a, b) => (a.submittedAt ?? '').localeCompare(b.submittedAt ?? '')).map((r) => [r.author, r])).values()]
 
-const Term = ({ icon: Glyph, children }: { icon: Icon; children: string }) => (
-  <dt>
-    <Glyph /> {children}
-  </dt>
-)
-
 const None = () => <span className="muted">None</span>
 
-function PrInfo({ pr }: { pr: PrDetails }) {
+function storedWidth() {
+  try {
+    return Number(localStorage.getItem(WIDTH_KEY)) || DEFAULT_WIDTH
+  } catch {
+    return DEFAULT_WIDTH
+  }
+}
+
+function applyWidth(width: number, persist: boolean) {
+  const clamped = Math.round(Math.max(MIN_WIDTH, Math.min(width, innerWidth - 400)))
+  document.documentElement.style.setProperty('--details-width', `${clamped}px`)
+  if (!persist) return
+  try {
+    localStorage.setItem(WIDTH_KEY, String(clamped))
+  } catch {}
+}
+
+function ResizeHandle() {
+  useEffect(() => applyWidth(storedWidth(), false), [])
+  const widthFromPointer = (e: PointerEvent) => innerWidth - e.clientX
+  const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
+    e.currentTarget.setPointerCapture(e.pointerId)
+    document.body.classList.add('resizing')
+  }
+  const onPointerMove = (e: PointerEvent<HTMLDivElement>) => e.currentTarget.hasPointerCapture(e.pointerId) && applyWidth(widthFromPointer(e), false)
+  const onPointerUp = (e: PointerEvent<HTMLDivElement>) => {
+    document.body.classList.remove('resizing')
+    applyWidth(widthFromPointer(e), true)
+  }
+  const onKeyDown = (e: KeyboardEvent) => {
+    const step = { ArrowLeft: 32, ArrowRight: -32 }[e.key]
+    if (!step) return
+    e.preventDefault()
+    applyWidth(storedWidth() + step, true)
+  }
   return (
-    <section>
-      <h3>Pull request</h3>
-      <p>
-        <GitBranchIcon /> <code>{pr.headRef}</code> → <code>{pr.baseRef}</code>
-      </p>
-      <p>
-        <span className="add">+{pr.additions}</span> <span className="del">−{pr.deletions}</span> · {pr.changedFiles} files · {pr.mergeable.toLowerCase()}
-      </p>
-      {pr.checks.length > 0 && (
-        <ul className="checks">
-          {pr.checks.map((c, i) => (
-            <li key={i}>
-              <CiIcon ci={c.conclusion ?? 'PENDING'} />{' '}
-              {c.url ? (
-                <a href={c.url} target="_blank" rel="noreferrer">
-                  {c.name}
-                </a>
-              ) : (
-                c.name
-              )}
-            </li>
-          ))}
-        </ul>
+    <div
+      className="resize-handle"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize details (arrow keys)"
+      tabIndex={0}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onKeyDown={onKeyDown}
+      onDoubleClick={() => applyWidth(DEFAULT_WIDTH, true)}
+    />
+  )
+}
+
+function PrSummary({ pr }: { pr: PrDetails }) {
+  return (
+    <p className="byline">
+      <GitBranchIcon /> <code>{pr.headRef}</code> → <code>{pr.baseRef}</code> · <span className="add">+{pr.additions}</span>{' '}
+      <span className="del">−{pr.deletions}</span> · {pr.changedFiles} files
+    </p>
+  )
+}
+
+function Checks({ pr }: { pr: PrDetails }) {
+  const reviews = latestReviews(pr.reviews)
+  return (
+    <>
+      <section>
+        <h3>Reviews</h3>
+        {reviews.length ? (
+          <ul className="reviews">
+            {reviews.map((r) => (
+              <li key={r.author ?? ''}>
+                <ReviewIcon state={r.state} /> {r.author ?? 'ghost'} {r.submittedAt && <Time iso={r.submittedAt} />}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <None />
+        )}
+      </section>
+      <section>
+        <h3>Checks</h3>
+        {pr.checks.length ? (
+          <ul className="checks">
+            {pr.checks.map((c, i) => (
+              <li key={i}>
+                <CiIcon ci={c.conclusion ?? 'PENDING'} />{' '}
+                {c.url ? (
+                  <a href={c.url} target="_blank" rel="noreferrer">
+                    {c.name}
+                  </a>
+                ) : (
+                  c.name
+                )}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <None />
+        )}
+      </section>
+      <p className="muted">Mergeable: {pr.mergeable.toLowerCase()}</p>
+    </>
+  )
+}
+
+function Conversation({ details }: { details: ItemDetails }) {
+  const { item, comments, totalComments } = details
+  return (
+    <>
+      <article className="comment">
+        <div className="comment-head">
+          <strong>{item.author ?? 'ghost'}</strong> opened <Time iso={item.createdAt} />
+        </div>
+        <HtmlFrame title="Description" html={details.bodyHTML} />
+      </article>
+      {comments.length < totalComments && (
+        <p className="muted">
+          Showing last {comments.length} of {totalComments} comments
+        </p>
       )}
-      {pr.reviews.length > 0 && (
-        <ul className="reviews">
-          {latestReviews(pr.reviews).map((r) => (
-            <li key={r.author ?? ''}>
-              <ReviewIcon state={r.state} /> {r.author ?? 'ghost'}{' '}
-              {r.submittedAt && <Time iso={r.submittedAt} />}
-            </li>
-          ))}
-        </ul>
+      {comments.map((c) => (
+        <article key={c.url} className="comment">
+          <div className="comment-head">
+            <strong>{c.author ?? 'ghost'}</strong>{' '}
+            <a href={c.url} target="_blank" rel="noreferrer">
+              <Time iso={c.createdAt} />
+            </a>
+          </div>
+          <HtmlFrame title={`Comment by ${c.author ?? 'ghost'}`} html={c.bodyHTML} />
+        </article>
+      ))}
+    </>
+  )
+}
+
+async function renderMarkdown(text: string, repo: string): Promise<string> {
+  const res = await fetch('/api/markdown', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text, repo }) })
+  const json = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(json.error ?? `${res.status} ${res.statusText}`)
+  return json.html
+}
+
+function Composer({ repo, value, onChange }: { repo: string; value: string; onChange: (v: string) => void }) {
+  const [preview, setPreview] = useState<{ text: string; html?: string; error?: string } | null>(null)
+  const showPreview = async () => {
+    if (preview?.text === value) return
+    setPreview({ text: value })
+    try {
+      setPreview({ text: value, html: value.trim() ? await renderMarkdown(value, repo) : '<p><em>Nothing to preview</em></p>' })
+    } catch (e) {
+      setPreview({ text: value, error: (e as Error).message })
+    }
+  }
+  const [tab, setTab] = useState<'write' | 'preview'>('write')
+  return (
+    <div className="composer">
+      <div className="dtabs small" role="tablist" aria-label="Comment">
+        <button type="button" role="tab" aria-selected={tab === 'write'} onClick={() => setTab('write')}>
+          Write
+        </button>
+        <button type="button" role="tab" aria-selected={tab === 'preview'} onClick={() => (setTab('preview'), showPreview())}>
+          Preview
+        </button>
+      </div>
+      {tab === 'write' ? (
+        <textarea
+          rows={3}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="Leave a comment (Markdown)"
+          aria-label="Comment"
+          data-shortcut="c"
+          title="Comment (c)"
+          onFocus={() => setTab('write')}
+        />
+      ) : (
+        <div className="composer-preview">
+          {preview?.error ? <p className="error">{preview.error}</p> : preview?.html !== undefined ? <HtmlFrame title="Comment preview" html={preview.html} /> : <p className="muted">Rendering…</p>}
+        </div>
       )}
-    </section>
+    </div>
   )
 }
 
@@ -170,7 +311,7 @@ function ForceMergeDialog({ details, onConfirm, onClose }: { details: ItemDetail
   )
 }
 
-function Actions({ details, run }: { details: ItemDetails; run: (a: ItemAction) => Promise<void> }) {
+function Footer({ details, run }: { details: ItemDetails; run: (a: ItemAction) => Promise<void> }) {
   const { item, pr } = details
   const [comment, setComment] = useState('')
   const [duplicateOf, setDuplicateOf] = useState('')
@@ -178,10 +319,12 @@ function Actions({ details, run }: { details: ItemDetails; run: (a: ItemAction) 
   const [forcing, setForcing] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const menuRef = useRef<HTMLDetailsElement>(null)
   const body = comment.trim()
   const withComment = body ? { comment: body } : {}
   const closeLabel = body ? 'Comment and close' : 'Close'
   const submit = async (action: ItemAction) => {
+    if (menuRef.current) menuRef.current.open = false
     setBusy(true)
     setError(null)
     try {
@@ -195,110 +338,92 @@ function Actions({ details, run }: { details: ItemDetails; run: (a: ItemAction) 
     }
   }
   const merge = (force: boolean) => pr && method && submit({ type: 'merge', method, expectedHeadOid: pr.headOid, force })
-  const blockers = pr && mergeBlockers(details)
+  const blockers = pr && item.state === 'open' ? mergeBlockers(details) : null
   const canClose = item.state === 'open' && details.viewerCanClose
 
   return (
-    <section className="item-actions">
-      <h3>Actions</h3>
-      <label>
-        Comment
-        <textarea rows={4} value={comment} onChange={(e) => setComment(e.target.value)} data-shortcut="c" title="Comment (c)" />
-      </label>
-      <div className="row">
-        <button type="button" disabled={busy || !body} onClick={() => submit({ type: 'comment', body })}>
-          <CommentIcon /> Comment
-        </button>
-        {busy && <span className="muted">Working…</span>}
-      </div>
+    <footer className="details-foot">
+      <Composer repo={item.repo} value={comment} onChange={setComment} />
       {error && (
         <p className="error" role="alert">
           {error}
         </p>
       )}
-
-      {canClose && (
-        <fieldset className="danger-zone">
-          <legend>Close</legend>
-          {item.type === 'issue' ? (
-            <>
-              <div className="row">
+      {blockers && blockers.hard.length + blockers.soft.length > 0 && (
+        <p className={blockers.hard.length ? 'error' : 'warn'}>
+          <AlertIcon /> {[...blockers.hard, ...blockers.soft].join(' · ')}
+        </p>
+      )}
+      <div className="row">
+        <button type="button" disabled={busy || !body} onClick={() => submit({ type: 'comment', body })}>
+          <CommentIcon /> Comment
+        </button>
+        {canClose && (
+          <details className="menu" ref={menuRef}>
+            <summary className="button">
+              {item.type === 'issue' ? <IssueClosedIcon /> : <GitPullRequestClosedIcon />} {closeLabel} <TriangleDownIcon />
+            </summary>
+            <div className="menu-body">
+              {item.type === 'issue' ? (
+                <>
+                  <button type="button" disabled={busy} onClick={() => submit({ type: 'close', reason: 'COMPLETED', ...withComment })}>
+                    <IssueClosedIcon className="state-merged" /> as completed
+                  </button>
+                  <button type="button" disabled={busy} onClick={() => submit({ type: 'close', reason: 'NOT_PLANNED', ...withComment })}>
+                    <SkipIcon /> as not planned
+                  </button>
+                  <form className="row" onSubmit={(e) => (e.preventDefault(), submit({ type: 'duplicate', of: duplicateOf.trim(), ...withComment }))}>
+                    <input value={duplicateOf} onChange={(e) => setDuplicateOf(e.target.value)} placeholder="#123, repo#123 or URL" aria-label="Duplicate of" />
+                    <button type="submit" disabled={busy || !duplicateOf.trim()}>
+                      <DuplicateIcon /> as duplicate
+                    </button>
+                  </form>
+                </>
+              ) : (
                 <button type="button" disabled={busy} onClick={() => submit({ type: 'close', reason: 'COMPLETED', ...withComment })}>
-                  <IssueClosedIcon className="state-merged" /> {closeLabel} as completed
+                  <GitPullRequestClosedIcon className="state-closed" /> Close pull request
                 </button>
-                <button type="button" disabled={busy} onClick={() => submit({ type: 'close', reason: 'NOT_PLANNED', ...withComment })}>
-                  <SkipIcon /> {closeLabel} as not planned
-                </button>
-              </div>
-              <div className="row">
-                <label>
-                  Duplicate of
-                  <input value={duplicateOf} onChange={(e) => setDuplicateOf(e.target.value)} placeholder="#123, repo#123 or URL" />
-                </label>
-                <button type="button" disabled={busy || !duplicateOf.trim()} onClick={() => submit({ type: 'duplicate', of: duplicateOf.trim(), ...withComment })}>
-                  <DuplicateIcon /> {closeLabel} as duplicate
-                </button>
-              </div>
-            </>
-          ) : (
-            <div className="row">
-              <button type="button" disabled={busy} onClick={() => submit({ type: 'close', reason: 'COMPLETED', ...withComment })}>
-                <GitPullRequestClosedIcon className="state-closed" /> {closeLabel}
-              </button>
+              )}
             </div>
-          )}
-        </fieldset>
-      )}
-
-      {pr && blockers && (
-        <fieldset className="danger-zone">
-          <legend>Merge</legend>
-          {blockers.hard.length + blockers.soft.length > 0 && (
-            <ul className="blockers">
-              {blockers.hard.map((b) => (
-                <li key={b} className="error">{b}</li>
+          </details>
+        )}
+        {pr && blockers && !blockers.hard.length && (
+          <span className="merge">
+            <select value={method} onChange={(e) => setMethod(e.target.value as MergeMethod)} aria-label="Merge method">
+              {pr.mergeMethods.map((m) => (
+                <option key={m} value={m}>
+                  {m.toLowerCase()}
+                </option>
               ))}
-              {blockers.soft.map((b) => (
-                <li key={b} className="warn">{b}</li>
-              ))}
-            </ul>
-          )}
-          {!blockers.hard.length && (
-            <>
-              <div className="row">
-                <label>
-                  Method
-                  <select value={method} onChange={(e) => setMethod(e.target.value as MergeMethod)}>
-                    {pr.mergeMethods.map((m) => (
-                      <option key={m} value={m}>
-                        {m.toLowerCase()}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {blockers.soft.length ? (
-                  <button type="button" className="danger" disabled={busy} onClick={() => setForcing(true)}>
-                    <AlertIcon /> Force merge…
-                  </button>
-                ) : (
-                  <button type="button" className="primary" disabled={busy} onClick={() => merge(false)}>
-                    <GitMergeIcon /> Merge
-                  </button>
-                )}
-              </div>
-              {!pr.viewerCanMergeAsAdmin && <p className="muted">You are not an admin here, branch protection may still refuse the merge.</p>}
-            </>
-          )}
-          {forcing && <ForceMergeDialog details={details} onConfirm={() => merge(true)} onClose={() => setForcing(false)} />}
-        </fieldset>
-      )}
-    </section>
+            </select>
+            {blockers.soft.length ? (
+              <button
+                type="button"
+                className="danger"
+                disabled={busy}
+                onClick={() => setForcing(true)}
+                title={pr.viewerCanMergeAsAdmin ? undefined : 'You are not an admin here, branch protection may still refuse the merge'}
+              >
+                <AlertIcon /> Force merge…
+              </button>
+            ) : (
+              <button type="button" className="primary" disabled={busy} onClick={() => merge(false)}>
+                <GitMergeIcon /> Merge
+              </button>
+            )}
+          </span>
+        )}
+        {busy && <span className="muted">Working…</span>}
+      </div>
+      {forcing && <ForceMergeDialog details={details} onConfirm={() => merge(true)} onClose={() => setForcing(false)} />}
+    </footer>
   )
 }
 
 export function Details({ id, listItem, onItem, onClose }: { id: string; listItem?: Item; onItem: (item: Item) => void; onClose: () => void }) {
   const [details, setDetails] = useState<ItemDetails | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [tab, setTab] = useState<'conversation' | 'checks'>('conversation')
   const headingRef = useRef<HTMLHeadingElement>(null)
   const url = `/api/items/${encodeURIComponent(id)}`
 
@@ -319,9 +444,25 @@ export function Details({ id, listItem, onItem, onClose }: { id: string; listIte
     loaded(await api(`${url}/actions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(action) }))
 
   const item = details?.item ?? listItem
+  const pr = details?.pr
   return (
     <aside className="details" aria-label="Item details" aria-busy={!details}>
-      <div className="details-head">
+      <ResizeHandle />
+      <header className="details-head">
+        <div className="details-top">
+          {item && <StateIcon item={item} />}
+          {item && (
+            <span className="muted">
+              {typeLabel(item)} · {item.repo}#{item.number}
+            </span>
+          )}
+          <span className="hint" title={SHORTCUTS} aria-label={SHORTCUTS} role="img">
+            <QuestionIcon />
+          </span>
+          <button type="button" className="icon-button" onClick={onClose} aria-label="Close details" title="Close (Esc)">
+            <XIcon />
+          </button>
+        </div>
         <h2 ref={headingRef} tabIndex={-1}>
           {item ? (
             <a href={item.url} target="_blank" rel="noreferrer" data-shortcut="o" title="Open on GitHub (o)">
@@ -331,29 +472,20 @@ export function Details({ id, listItem, onItem, onClose }: { id: string; listIte
             'Loading…'
           )}
         </h2>
-        <span className="hint" title={SHORTCUTS} aria-label={SHORTCUTS} role="img">
-          <QuestionIcon />
-        </span>
-        <button type="button" className="icon-button" onClick={onClose} aria-label="Close details" title="Close (Esc)">
-          <XIcon />
-        </button>
-      </div>
-      {item && (
-        <>
-          <p>
-            <StateIcon item={item} /> {typeLabel(item)} · {item.repo}#{item.number}
+        {item && (
+          <p className="byline">
+            {item.author ?? 'ghost'} opened <Time iso={item.createdAt} /> · updated <Time iso={item.updatedAt} />
+            {item.milestone && (
+              <>
+                {' '}
+                · <MilestoneIcon /> {item.milestone}
+              </>
+            )}
           </p>
+        )}
+        {pr && <PrSummary pr={pr} />}
+        {item && (
           <dl className="meta">
-            <Term icon={PersonIcon}>Author</Term>
-            <dd>{item.author ?? 'ghost'}</dd>
-            <Term icon={ClockIcon}>Created</Term>
-            <dd>
-              <Time iso={item.createdAt} />
-            </dd>
-            <Term icon={ClockIcon}>Updated</Term>
-            <dd>
-              <Time iso={item.updatedAt} />
-            </dd>
             <Picker
               icon={TagIcon}
               label="Labels"
@@ -385,7 +517,7 @@ export function Details({ id, listItem, onItem, onClose }: { id: string; listIte
             {item.type === 'pr' && (
               <Picker
                 icon={EyeIcon}
-                label="Review requests"
+                label="Reviewers"
                 selected={item.reviewRequests}
                 load={async () => {
                   const { assignees, teams } = await loadRepoOptions(item.repo)
@@ -396,49 +528,29 @@ export function Details({ id, listItem, onItem, onClose }: { id: string; listIte
                 {item.reviewRequests.join(', ') || <None />}
               </Picker>
             )}
-            {item.milestone && (
-              <>
-                <Term icon={MilestoneIcon}>Milestone</Term>
-                <dd>{item.milestone}</dd>
-              </>
-            )}
           </dl>
-        </>
+        )}
+      </header>
+      {pr && (
+        <div className="dtabs" role="tablist" aria-label="Details">
+          <button type="button" role="tab" aria-selected={tab === 'conversation'} onClick={() => setTab('conversation')}>
+            <CommentIcon /> Conversation <span className="count">{details.totalComments}</span>
+          </button>
+          <button type="button" role="tab" aria-selected={tab === 'checks'} onClick={() => setTab('checks')}>
+            <ChecklistIcon /> Checks & reviews <span className="count">{pr.checks.length}</span>
+          </button>
+        </div>
       )}
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
-      {!details && !error && <p className="muted">Loading details…</p>}
-      {details && (
-        <>
-          {details.pr && <PrInfo pr={details.pr} />}
-          <HtmlFrame title="Description" html={details.bodyHTML} />
-          <section>
-            <h3>
-              <CommentIcon /> Comments ({details.totalComments})
-            </h3>
-            {details.comments.length < details.totalComments && (
-              <p className="muted">
-                Showing last {details.comments.length} of {details.totalComments} comments
-              </p>
-            )}
-            {details.comments.map((c) => (
-              <article key={c.url} className="comment">
-                <div className="comment-head">
-                  <strong>{c.author ?? 'ghost'}</strong>{' '}
-                  <a href={c.url} target="_blank" rel="noreferrer">
-                    <Time iso={c.createdAt} />
-                  </a>
-                </div>
-                <HtmlFrame title={`Comment by ${c.author ?? 'ghost'}`} html={c.bodyHTML} />
-              </article>
-            ))}
-          </section>
-          <Actions details={details} run={run} />
-        </>
-      )}
+      <div className="details-body" role={pr ? 'tabpanel' : undefined}>
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
+        {!details && !error && <p className="muted">Loading details…</p>}
+        {details && (pr && tab === 'checks' ? <Checks pr={pr} /> : <Conversation details={details} />)}
+      </div>
+      {details && <Footer details={details} run={run} />}
     </aside>
   )
 }

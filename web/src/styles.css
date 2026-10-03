@@ -259,6 +259,11 @@ button.icon-button:hover { color: var(--fg); border-color: var(--border); backgr
 .ov-people { max-height: 24rem; overflow-y: auto; }
 .ov-people li { display: grid; grid-template-columns: minmax(8rem, 14rem) 3rem 1fr auto; gap: 0.5rem; align-items: center; }
 .ov-people .badge { margin-left: 0.3rem; }
+.ov-top { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.25rem; }
+.ov-top li { display: grid; grid-template-columns: minmax(0, 1fr) repeat(3, 3.5rem); gap: 0.5rem; align-items: center; }
+.ov-top li > :not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
+.ov-top li > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-top .badge { margin-left: 0.3rem; }
 .ov-chart figcaption { flex-wrap: wrap; gap: 0.25rem 1rem; }
 .ov-chart figcaption output { color: var(--fg); margin-left: auto; }
 .ov-legend > span { white-space: nowrap; }

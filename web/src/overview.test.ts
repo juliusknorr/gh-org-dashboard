@@ -70,6 +70,14 @@ test('overview buckets, review times and new contributors', () => {
   assert.equal(o.review.waiting, 1)
   assert.equal(o.totals.communityPrs, 2)
   assert.deepEqual(o.newContributors.map((c) => [c.author, c.count]), [['newbie', 2]])
+  assert.deepEqual(
+    o.topContributors.map((c) => [c.author, c.member, c.merged, c.prs, c.issues]),
+    [
+      ['alice', true, 1, 1, 0],
+      ['newbie', false, 0, 2, 0],
+      ['veteran', true, 0, 0, 1],
+    ],
+  )
   assert.equal(o.newContributors[0].first.createdAt, at(9))
 })
 

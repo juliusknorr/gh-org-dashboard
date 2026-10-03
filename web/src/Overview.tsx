@@ -330,6 +330,38 @@ export function Overview({ items, search }: { items: Item[]; search: string }) {
           <ItemList items={o.untriaged} link={(i) => to({ ...UNTRIAGED, sort: 'created', item: i.id })} date={(i) => i.createdAt} />
         </Section>
 
+        <Section title="Top contributors">
+          {o.topContributors.length ? (
+            <ul className="ov-top">
+              <li className="muted" aria-hidden="true">
+                <span>Author</span>
+                <span title="PRs merged in range">Merged</span>
+                <span title="PRs opened in range">PRs</span>
+                <span title="Issues opened in range">Issues</span>
+              </li>
+              {o.topContributors.map((c) => (
+                <li key={c.author}>
+                  <span>
+                    <a href={`/team?member=${encodeURIComponent(c.author)}&weeks=${weeks}`}>{c.author}</a>
+                    {!c.member && <span className="badge community">ext</span>}
+                  </span>
+                  <a href={to({ ...ALL, author: c.author, type: 'pr', state: 'merged', closed: since })} aria-label={`${c.merged} PRs merged by ${c.author}`}>
+                    {c.merged}
+                  </a>
+                  <a href={to({ ...ALL, author: c.author, type: 'pr', created: since })} aria-label={`${c.prs} PRs opened by ${c.author}`}>
+                    {c.prs}
+                  </a>
+                  <a href={to({ ...ALL, author: c.author, type: 'issue', created: since })} aria-label={`${c.issues} issues opened by ${c.author}`}>
+                    {c.issues}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted">No activity in this range.</p>
+          )}
+        </Section>
+
         <Section title={`New contributors (${o.newContributors.length})`} wide>
           {o.newContributors.length ? (
             <ul className="ov-people">

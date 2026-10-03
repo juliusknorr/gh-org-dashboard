@@ -36,6 +36,32 @@ export interface Week {
   closedIssues: number
 }
 
+export interface TopContributor {
+  author: string
+  member: boolean
+  merged: number
+  prs: number
+  issues: number
+}
+
+const TOP_CONTRIBUTORS = 15
+
+function topContributors(items: Item[], fromIso: string): TopContributor[] {
+  const top = new Map<string, TopContributor>()
+  for (const i of items) {
+    const merged = i.state === 'merged' && (i.closedAt ?? '') >= fromIso
+    const opened = i.createdAt >= fromIso
+    if (!i.author || (!merged && !opened)) continue
+    const c = top.get(i.author) ?? { author: i.author, member: isMember(i), merged: 0, prs: 0, issues: 0 }
+    if (merged) c.merged++
+    if (opened) i.type === 'pr' ? c.prs++ : c.issues++
+    top.set(i.author, c)
+  }
+  return [...top.values()]
+    .sort((a, b) => b.merged - a.merged || b.prs + b.issues - (a.prs + a.issues) || a.author.localeCompare(b.author))
+    .slice(0, TOP_CONTRIBUTORS)
+}
+
 export interface Contributor {
   author: string
   first: Item
@@ -125,6 +151,7 @@ export function overview(items: Item[], weeks: number, now = Date.now()) {
     stale: open.toSorted(byDate('updatedAt')).slice(0, TOP),
     untriaged: open.filter(isUntriaged).sort(byDate('createdAt')).slice(0, TOP),
     unreviewed: open.filter(isWaiting).sort(byDate('createdAt')).slice(0, TOP),
+    topContributors: topContributors(items, fromIso),
     newContributors: [...firsts.values()].filter((c) => c.first.createdAt >= fromIso).sort((a, b) => b.first.createdAt.localeCompare(a.first.createdAt)),
   }
 }

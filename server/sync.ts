@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import type { CiState, Item, ReviewDecision, SyncStatus } from '../shared/types.ts'
-import { getMeta, setMeta, upsertItems } from './db.ts'
+import { deleteItemsOutside, getMeta, setMeta, upsertItems } from './db.ts'
 
 export const ORG = process.env.ORG ?? 'Euro-Office'
 const CONCURRENCY = 4
@@ -92,8 +92,8 @@ async function listRepos(): Promise<string[]> {
 }
 
 export const COMMON_FIELDS = `
-  id number title url state createdAt updatedAt closedAt authorAssociation
-  author { login }
+  id number title url state createdAt updatedAt closedAt
+  author { __typename login }
   assignees(first: 20) { nodes { login } }
   labels(first: 30) { nodes { name color } }
   milestone { title }
@@ -107,7 +107,7 @@ export const ISSUE_FIELDS = `
 
 export const PR_FIELDS = `
   isDraft reviewDecision
-  firstReviews: reviews(first: 10) { nodes { author { login } submittedAt } }
+  firstReviews: reviews(first: 10) { nodes { author { __typename login } submittedAt } }
   reviewRequests(first: 20) { nodes { requestedReviewer { ... on User { login } ... on Team { slug } } } }
   commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }`
 
@@ -120,21 +120,26 @@ export type RawNode = {
   createdAt: string
   updatedAt: string
   closedAt: string | null
-  authorAssociation: string
-  author: { login: string } | null
+  author: Author | null
   assignees: { nodes: { login: string }[] }
   labels: { nodes: { name: string; color: string }[] }
   milestone: { title: string } | null
   comments: { totalCount: number }
   isDraft?: boolean
   reviewDecision?: ReviewDecision
-  firstReviews?: { nodes: { author: { login: string } | null; submittedAt: string | null }[] }
+  firstReviews?: { nodes: { author: Author | null; submittedAt: string | null }[] }
   reviewRequests?: { nodes: { requestedReviewer: { login?: string; slug?: string } | null }[] }
   commits?: { nodes: { commit: { statusCheckRollup: { state: CiState } | null } }[] }
   triageEvents?: { nodes: { createdAt: string; author?: { login: string } | null; actor?: { login: string } | null }[] }
 }
 
-const orgMembers = new Set<string>()
+type Author = { __typename?: string; login: string }
+
+const isBot = (author: Author | null | undefined) => !!author && (author.__typename === 'Bot' || author.login.endsWith('[bot]'))
+
+const orgMembers = new Set<string>(JSON.parse(getMeta('orgMembers') ?? '[]'))
+
+export const isOrgMember = (login: string | null) => login !== null && orgMembers.has(login)
 
 export async function loadOrgMembers(): Promise<void> {
   const query = `query($org: String!, $cursor: String) {
@@ -149,6 +154,7 @@ export async function loadOrgMembers(): Promise<void> {
   } while (cursor)
   orgMembers.clear()
   for (const login of logins) orgMembers.add(login)
+  setMeta('orgMembers', JSON.stringify(logins))
 }
 
 export const ensureOrgMembers = () => (orgMembers.size ? Promise.resolve() : loadOrgMembers())
@@ -156,6 +162,7 @@ export const ensureOrgMembers = () => (orgMembers.size ? Promise.resolve() : loa
 function triage(node: RawNode): { triagedAt: string | null; triagedBy: string | null } {
   if (node.isDraft !== undefined) return { triagedAt: null, triagedBy: null }
   const author = node.author?.login
+  if (isBot(node.author)) return { triagedAt: node.createdAt, triagedBy: null }
   if (author && orgMembers.has(author)) return { triagedAt: node.createdAt, triagedBy: author }
   const first = (node.triageEvents?.nodes ?? [])
     .map((e) => ({ at: e.createdAt, by: (e.author ?? e.actor)?.login }))
@@ -176,7 +183,8 @@ export function toItem(repo: string, node: RawNode): Item {
     state: node.state === 'MERGED' ? 'merged' : node.state === 'OPEN' ? 'open' : 'closed',
     draft: node.isDraft ?? false,
     author: node.author?.login ?? null,
-    authorAssociation: node.authorAssociation,
+    member: isOrgMember(node.author?.login ?? null),
+    bot: isBot(node.author),
     assignees: node.assignees.nodes.map((a) => a.login),
     labels: node.labels.nodes.map(({ name, color }) => ({ name, color })),
     milestone: node.milestone?.title ?? null,
@@ -191,7 +199,7 @@ export function toItem(repo: string, node: RawNode): Item {
     closedAt: node.closedAt,
     firstReviewAt:
       node.firstReviews?.nodes
-        .filter((r) => r.submittedAt && r.author?.login !== node.author?.login)
+        .filter((r) => r.submittedAt && r.author?.login !== node.author?.login && !isBot(r.author))
         .map((r) => r.submittedAt!)
         .sort()[0] ?? null,
     ...triage(node),
@@ -205,12 +213,13 @@ async function syncConnection(repo: string, connection: 'issues' | 'pullRequests
       ${connection}(first: $pageSize, after: $cursor, orderBy: { field: UPDATED_AT, direction: DESC }) { pageInfo { hasNextPage endCursor } nodes { ${fields} } }
     }
   }`
+  const overlapSince = since && new Date(Date.parse(since) - SEARCH_OVERLAP_MS).toISOString()
   let newest: string | null = null
   let cursor: string | null = null
   do {
     const data: { repository: Record<string, Page<RawNode>> } = await graphql(query, { org: ORG, repo, cursor, pageSize: since ? 10 : 100 })
     const page = data.repository[connection]
-    const fresh = page.nodes.filter((n) => !since || n.updatedAt >= since)
+    const fresh = page.nodes.filter((n) => !overlapSince || n.updatedAt >= overlapSince)
     upsertItems(fresh.map((n) => toItem(repo, n)))
     newest ??= fresh[0]?.updatedAt ?? null
     const reachedWatermark = fresh.length < page.nodes.length
@@ -275,13 +284,14 @@ async function runSync(): Promise<void> {
   const started = Date.now()
   await loadOrgMembers()
   const repos = await listRepos()
+  if (repos.length) deleteItemsOutside(repos)
   const errors: string[] = []
   const unsynced = repos.filter((repo) => !getMeta(`repo:${repo}:updatedAt`))
   await syncRepos(unsynced, errors)
   const searchedAt = getMeta('searchedAt')
   const viaSearch = searchedAt !== null && (await searchSync(searchedAt))
   if (!viaSearch) await syncRepos(repos.filter((r) => !unsynced.includes(r)), errors)
-  if (!errors.length) setMeta('searchedAt', new Date(started).toISOString())
+  if (viaSearch || !errors.length) setMeta('searchedAt', new Date(started).toISOString())
   status.error = errors.length ? errors.join('\n') : null
   status.lastSyncAt = new Date().toISOString()
   setMeta('lastSyncAt', status.lastSyncAt)

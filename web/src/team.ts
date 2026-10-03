@@ -1,5 +1,5 @@
 import type { Item } from '../../shared/types.ts'
-import { DEFAULT_FILTERS, countBy, filterItems, isMember, serializeFilters, type Filters } from './filters.ts'
+import { DEFAULT_FILTERS, countBy, filterItems, serializeFilters, type Filters } from './filters.ts'
 import { WEEK, isoDate, quantile, weekRange, weekStart } from './overview.ts'
 
 export const STALE_DAYS = 30
@@ -16,7 +16,7 @@ export interface Metric {
 export const itemsHref = (query: Query) => `/?${serializeFilters({ ...DEFAULT_FILTERS, ...query })}`
 
 export function members(items: Item[], weeks: number, now = Date.now()) {
-  const logins = new Set(items.filter(isMember).map((i) => i.author).filter((a) => a !== null))
+  const logins = new Set(items.filter((i) => i.member).map((i) => i.author).filter((a) => a !== null))
   const since = new Date(now - weeks * WEEK).toISOString()
   const stats = new Map([...logins].map((login) => [login, { login, active: 0, last: '' }]))
   for (const i of items) {
@@ -46,7 +46,7 @@ export function summary(items: Item[], login: string, weeks: number, now = Date.
   const author = login
   const prs: Query = { author, type: 'pr', state: [] }
   const reviewed = metric({ ...prs, created, firstReview: 'yes' })
-  const triaged = metric({ type: 'issue', state: [], created, triagedBy: login })
+  const triaged = metric({ type: 'issue', state: [], created, triagedBy: login, who: 'community' })
   return {
     login,
     openPrs: metric({ author, type: 'pr' }),
@@ -56,7 +56,7 @@ export function summary(items: Item[], login: string, weeks: number, now = Date.
     merged: metric({ ...prs, state: ['merged'], closed: created }),
     issuesClosed: metric({ author, type: 'issue', state: ['closed'], closed: created }),
     review: { median: median(reviewed.list, 'firstReviewAt'), reviewed, unreviewed: metric({ ...prs, created, firstReview: 'no' }) },
-    triage: { median: median(triaged.list.filter((i) => i.author !== login), 'triagedAt'), triaged },
+    triage: { median: median(triaged.list, 'triagedAt'), triaged },
     untriaged: metric({ assignee: login, type: 'issue', triaged: 'no' }),
   }
 }

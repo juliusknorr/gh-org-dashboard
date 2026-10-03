@@ -13,7 +13,8 @@ export interface Item {
   state: ItemState
   draft: boolean
   author: string | null
-  authorAssociation: string
+  member: boolean
+  bot: boolean
   assignees: string[]
   labels: { name: string; color: string }[]
   milestone: string | null

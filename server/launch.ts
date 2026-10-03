@@ -43,7 +43,7 @@ function claudeCommand(item: Item, { prompt, worktree, remoteControl }: LaunchRe
   const args = ['claude', '-n', name]
   if (worktree) args.push('-w', name)
   if (remoteControl) args.push('--remote-control', name)
-  return { name, command: `cd ${shellQuote(dir)} && ${[...args.map(shellQuote), shellQuote(prompt)].join(' ')}` }
+  return { name, command: `cd ${shellQuote(dir)} && ${[...args, '--', prompt].map(shellQuote).join(' ')}` }
 }
 
 async function openTerminal(name: string, dir: string, script: string) {

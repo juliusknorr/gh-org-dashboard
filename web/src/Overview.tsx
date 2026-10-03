@@ -1,7 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import type { Item } from '../../shared/types.ts'
-import { isMember } from './filters.ts'
-import { StateIcon, Time } from './format.tsx'
+import { AuthorBadge, StateIcon, Time } from './format.tsx'
 import { DAY, RANGES, isoDate, overview, weekRange, type Week } from './overview.ts'
 
 const DEFAULT_WEEKS = 12
@@ -369,7 +368,7 @@ export function Overview({ items, search }: { items: Item[]; search: string }) {
                 <li key={c.author}>
                   <span>
                     <a href={to({ ...ALL, author: c.author })}>{c.author}</a>
-                    {!isMember(c.first) && <span className="badge community">ext</span>}
+                    <AuthorBadge item={c.first} />
                   </span>
                   <span className="count" title="Items in total">{c.count}</span>
                   <a href={to({ ...ALL, author: c.author, item: c.first.id })} title={c.first.title}>

@@ -16,7 +16,7 @@ import {
   NONE,
   countBy,
   filterItems,
-  isMember,
+  authorKind,
   parseFilters,
   serializeFilters,
   type Filters,
@@ -26,9 +26,11 @@ import { Details } from './Details.tsx'
 import { Overview } from './Overview.tsx'
 import { Team } from './Team.tsx'
 import { CommentIcon, IssueOpenedIcon, SidebarCollapseIcon, SidebarExpandIcon, SyncIcon, TerminalIcon } from '@primer/octicons-react'
-import { CiIcon, ReviewIcon, StateIcon, Time, textColor } from './format.tsx'
+import { AuthorBadge, CiIcon, ReviewIcon, StateIcon, Time, textColor } from './format.tsx'
 
 const ROW_HEIGHT = 36
+const SYNC_POLL_MS = 2000
+const IDLE_POLL_MS = 30_000
 const EMPTY: Item[] = []
 
 const features = tableFeatures({
@@ -84,7 +86,7 @@ const columns = col.columns([
       c.getValue() && (
         <>
           <FilterButton filter="author" value={c.getValue()} />
-          {!isMember(c.row.original) && <span className="badge community" title="Community contributor">ext</span>}
+          <AuthorBadge item={c.row.original} />
         </>
       ),
   }),
@@ -179,11 +181,20 @@ function useData() {
   )
   useEffect(() => void load(), [load])
   const running = data?.sync.running
+  const lastSyncAt = data?.sync.lastSyncAt
   useEffect(() => {
-    if (!running) return
-    const timer = setInterval(load, 2000)
+    const poll = async () => {
+      try {
+        const res = await fetch('/api/sync')
+        if (!res.ok) return
+        const status: SyncStatus = await res.json()
+        if (status.lastSyncAt !== lastSyncAt) return load()
+        if (status.running !== running) setData((d) => d && { ...d, sync: status })
+      } catch {}
+    }
+    const timer = setInterval(poll, running ? SYNC_POLL_MS : IDLE_POLL_MS)
     return () => clearInterval(timer)
-  }, [running, load])
+  }, [running, lastSyncAt, load])
   return { data, error, sync, replaceItem }
 }
 
@@ -249,7 +260,7 @@ function Sidebar({ items, filters, update }: { items: Item[]; filters: Filters; 
       <Multi label="Repository" values={filters.repo} counts={facet('repo', (i) => [i.repo])} onChange={(repo) => update({ repo })} />
       <Multi label="Labels (all of)" values={filters.label} counts={facet('label', (i) => i.labels.map((l) => l.name))} onChange={(label) => update({ label })} />
       <Single label="Author" value={filters.author} counts={facet('author', (i) => (i.author ? [i.author] : []))} onChange={(author) => update({ author })} />
-      <Single label="Author type" value={filters.who} counts={facet('who', (i) => [isMember(i) ? 'member' : 'community'])} onChange={(v) => update({ who: v as Filters['who'] })} />
+      <Single label="Author type" value={filters.who} counts={facet('who', (i) => [authorKind(i)])} onChange={(v) => update({ who: v as Filters['who'] })} />
       <Single label="Assignee" value={filters.assignee} counts={facet('assignee', (i) => (i.assignees.length ? i.assignees : [NONE]))} onChange={(assignee) => update({ assignee })} />
       <Single label="Review requested" value={filters.reviewer} counts={facet('reviewer', (i) => i.reviewRequests)} onChange={(reviewer) => update({ reviewer })} />
       <Single label="First review" value={filters.firstReview} counts={facet('firstReview', prOnly((i) => (i.firstReviewAt ? 'yes' : 'no')))} onChange={(v) => update({ firstReview: v as Filters['firstReview'] })} />

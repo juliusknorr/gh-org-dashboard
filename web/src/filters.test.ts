@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { Item } from '../../shared/types.ts'
-import { DEFAULT_FILTERS, countBy, filterItems, parseFilters, serializeFilters } from './filters.ts'
+import { authorKind, DEFAULT_FILTERS, countBy, filterItems, parseFilters, serializeFilters } from './filters.ts'
 
 const now = Date.parse('2026-10-01T00:00:00Z')
 const daysAgo = (n: number) => new Date(now - n * 86_400_000).toISOString()
@@ -16,7 +16,8 @@ const item = (over: Partial<Item>): Item => ({
   state: 'open',
   draft: false,
   author: 'alice',
-  authorAssociation: 'MEMBER',
+  member: true,
+  bot: false,
   assignees: [],
   labels: [],
   milestone: null,
@@ -36,7 +37,7 @@ const item = (over: Partial<Item>): Item => ({
 const items = [
   item({ number: 1, title: 'Crash on login', labels: [{ name: 'bug', color: 'd73a4a' }] }),
   item({ number: 2, type: 'pr', state: 'merged', ci: 'SUCCESS', reviewDecision: 'APPROVED', firstReviewAt: daysAgo(3), closedAt: daysAgo(2) }),
-  item({ number: 3, type: 'pr', repo: 'text', draft: true, authorAssociation: 'NONE', author: 'bob', assignees: ['carol'], reviewRequests: ['dave'] }),
+  item({ number: 3, type: 'pr', repo: 'text', draft: true, member: false, author: 'bob', assignees: ['carol'], reviewRequests: ['dave'] }),
   item({ number: 4, updatedAt: daysAgo(100), triagedAt: daysAgo(99), triagedBy: 'carol', labels: [{ name: 'bug', color: 'd73a4a' }, { name: 'stale', color: 'eeeeee' }] }),
 ]
 
@@ -89,4 +90,10 @@ test('url round-trip', () => {
 test('countBy', () => {
   assert.deepEqual(countBy(items, (i) => i.labels.map((l) => l.name)), [['bug', 2], ['stale', 1]])
   assert.deepEqual(countBy(items, (i) => [i.ci]), [['none', 3], ['SUCCESS', 1]])
+})
+
+test('authorKind separates members, community and bots', () => {
+  assert.equal(authorKind(item({})), 'member')
+  assert.equal(authorKind(item({ member: false })), 'community')
+  assert.equal(authorKind(item({ member: false, bot: true })), 'bot')
 })

@@ -1,6 +1,6 @@
 import { mergeBlockers } from '../shared/merge.ts'
 import type { Check, ItemAction, ItemDetails, MergeMethod, PrDetails, RepoOptions, Review } from '../shared/types.ts'
-import { upsertItems } from './db.ts'
+import { deleteItem, upsertItems } from './db.ts'
 import { COMMON_FIELDS, HttpError, ISSUE_FIELDS, ORG, PR_FIELDS, ensureOrgMembers, graphql, rest, toItem, type RawNode } from './sync.ts'
 
 const MAX_COMMENT_LENGTH = 65536
@@ -88,8 +88,17 @@ function toPrDetails(node: PrNode): PrDetails {
 
 export async function fetchDetails(id: string): Promise<ItemDetails> {
   await ensureOrgMembers()
-  const { node } = await graphql<{ node: DetailNode | null }>(DETAILS_QUERY, { id })
-  if (!node?.repository || node.repository.owner.login.toLowerCase() !== ORG.toLowerCase()) throw new HttpError(404, 'Item not found')
+  const node = await graphql<{ node: DetailNode | null }>(DETAILS_QUERY, { id }).then(
+    (data) => data.node,
+    (err) => {
+      if (err instanceof HttpError && err.status === 404) return null
+      throw err
+    },
+  )
+  if (!node?.repository || node.repository.owner.login.toLowerCase() !== ORG.toLowerCase()) {
+    deleteItem(id)
+    throw new HttpError(404, 'Item not found, removed it from the dashboard')
+  }
   const item = toItem(node.repository.name, node)
   upsertItems([item])
   return {

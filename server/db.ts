@@ -13,12 +13,14 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 `)
 
-const SCHEMA_VERSION = '3'
+const SCHEMA_VERSION = '4'
 
 const upsertStmt = db.prepare(
-  'INSERT INTO items (id, repo, updated_at, json) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET repo = excluded.repo, updated_at = excluded.updated_at, json = excluded.json',
+  'INSERT INTO items (id, repo, updated_at, json) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET repo = excluded.repo, updated_at = excluded.updated_at, json = excluded.json WHERE excluded.updated_at >= items.updated_at',
 )
 const allStmt = db.prepare('SELECT json FROM items ORDER BY updated_at DESC')
+const deleteStmt = db.prepare('DELETE FROM items WHERE id = ?')
+const deleteOutsideStmt = db.prepare('DELETE FROM items WHERE repo NOT IN (SELECT value FROM json_each(?))')
 const getMetaStmt = db.prepare('SELECT value FROM meta WHERE key = ?')
 const setMetaStmt = db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
 
@@ -35,6 +37,15 @@ export function upsertItems(items: Item[]): void {
 
 export function allItems(): Item[] {
   return allStmt.all().map((row) => JSON.parse(row.json as string) as Item)
+}
+
+export function deleteItem(id: string): void {
+  deleteStmt.run(id)
+}
+
+export function deleteItemsOutside(repos: string[]): void {
+  const { changes } = deleteOutsideStmt.run(JSON.stringify(repos))
+  if (changes) console.log(`removed ${changes} items from repos no longer in the org`)
 }
 
 export function getMeta(key: string): string | null {

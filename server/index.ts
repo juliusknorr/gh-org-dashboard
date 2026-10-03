@@ -6,7 +6,7 @@ import type { ItemsResponse, LaunchRequest } from '../shared/types.ts'
 import { allItems } from './db.ts'
 import { fetchDetails, fetchRepoOptions, parseAction, renderMarkdown, runAction } from './items.ts'
 import { launch } from './launch.ts'
-import { HttpError, ORG, getSyncStatus, startSync } from './sync.ts'
+import { HttpError, ORG, getSyncStatus, isOrgMember, startSync } from './sync.ts'
 
 const PORT = Number(process.env.PORT ?? 3001)
 const SYNC_INTERVAL_MS = 5 * 60 * 1000
@@ -51,7 +51,12 @@ const isLocal = (value: string | undefined) => {
   }
 }
 
-const isTrustedPost = (req: IncomingMessage) => isLocal(req.headers.origin) && req.headers['content-type'] === 'application/json'
+const DEV_PORT = 5173
+const TRUSTED_ORIGINS = new Set(
+  [PORT, DEV_PORT].flatMap((port) => [`http://localhost:${port}`, `http://127.0.0.1:${port}`]),
+)
+
+const isTrustedPost = (req: IncomingMessage) => TRUSTED_ORIGINS.has(req.headers.origin ?? '') && req.headers['content-type'] === 'application/json'
 
 async function readJson<T>(req: IncomingMessage): Promise<T> {
   const chunks: Buffer[] = []
@@ -92,13 +97,15 @@ createServer(async (req, res) => {
       if (!isLocal(req.headers.host) || (req.method === 'POST' && !isTrustedPost(req))) return sendJson(res, { error: 'Forbidden' }, 403)
     }
     if (pathname === '/api/items' && req.method === 'GET') {
-      const body: ItemsResponse = { org: ORG, items: allItems(), sync: getSyncStatus() }
+      const items = allItems().map((i) => ({ ...i, member: isOrgMember(i.author) }))
+      const body: ItemsResponse = { org: ORG, items, sync: getSyncStatus() }
       return sendJson(res, body)
     }
     if (itemRoute && !itemRoute[2] && req.method === 'GET') return sendJson(res, await fetchDetails(itemRoute[1]))
     if (itemRoute?.[2] && req.method === 'POST') return sendJson(res, await runAction(itemRoute[1], parseAction(await readJson(req))))
     if (optionsRoute && req.method === 'GET') return sendJson(res, await fetchRepoOptions(optionsRoute[1]))
     if (pathname === '/api/markdown' && req.method === 'POST') return sendJson(res, await renderMarkdown(await readJson(req)))
+    if (pathname === '/api/sync' && req.method === 'GET') return sendJson(res, getSyncStatus())
     if (pathname === '/api/sync' && req.method === 'POST') return sendJson(res, startSync())
     if (pathname === '/api/launch' && req.method === 'POST') {
       const body = await readJson<LaunchRequest>(req)

@@ -292,7 +292,7 @@ export function Team({ items, search }: { items: Item[]; search: string }) {
             <Card label="PRs merged" metric={t.merged} />
             <Card label="Issues closed" metric={t.issuesClosed} />
             <DurationCard label="Median to first review" noun="reviewed" value={t.review.median} metric={t.review.reviewed} />
-            <DurationCard label="Median to triage, excl. own" noun="triaged" value={t.triage.median} metric={t.triage.triaged} />
+            <DurationCard label="Median to triage, community issues" noun="triaged" value={t.triage.median} metric={t.triage.triaged} />
             <Card label="Assigned untriaged" metric={t.untriaged} />
           </div>
           <div className="team-grid">

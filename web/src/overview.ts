@@ -1,5 +1,5 @@
 import type { Item } from '../../shared/types.ts'
-import { isMember } from './filters.ts'
+import { isCommunity } from './filters.ts'
 
 export const DAY = 86_400_000
 export const WEEK = 7 * DAY
@@ -51,8 +51,8 @@ function topContributors(items: Item[], fromIso: string): TopContributor[] {
   for (const i of items) {
     const merged = i.state === 'merged' && (i.closedAt ?? '') >= fromIso
     const opened = i.createdAt >= fromIso
-    if (!i.author || (!merged && !opened)) continue
-    const c = top.get(i.author) ?? { author: i.author, member: isMember(i), merged: 0, prs: 0, issues: 0 }
+    if (!i.author || i.bot || (!merged && !opened)) continue
+    const c = top.get(i.author) ?? { author: i.author, member: i.member, merged: 0, prs: 0, issues: 0 }
     if (merged) c.merged++
     if (opened) i.type === 'pr' ? c.prs++ : c.issues++
     top.set(i.author, c)
@@ -70,7 +70,6 @@ export interface Contributor {
 
 const isWaiting = (i: Item) => i.type === 'pr' && i.state === 'open' && !i.draft && !i.firstReviewAt
 const isUntriaged = (i: Item) => i.type === 'issue' && i.state === 'open' && !i.triagedAt
-const openedByMember = (i: Item) => i.triagedBy === i.author && i.triagedAt === i.createdAt
 const byDate = (key: 'createdAt' | 'updatedAt') => (a: Item, b: Item) => a[key].localeCompare(b[key])
 
 export function overview(items: Item[], weeks: number, now = Date.now()) {
@@ -99,14 +98,14 @@ export function overview(items: Item[], weeks: number, now = Date.now()) {
     const closed = i.state !== 'open' ? bucket(i.closedAt) : undefined
     if (closed) i.type === 'pr' ? closed.prsClosed++ : closed.issuesClosed++
     if (opened && i.firstReviewAt) reviewTimes[series.indexOf(opened)].push(Date.parse(i.firstReviewAt) - Date.parse(i.createdAt))
-    if (opened && i.type === 'issue' && i.triagedAt && !openedByMember(i))
+    if (opened && i.type === 'issue' && i.triagedAt && isCommunity(i))
       triageTimes[series.indexOf(opened)].push(Date.parse(i.triagedAt) - Date.parse(i.createdAt))
     if (i.state === 'open') {
       const r = repos.get(i.repo) ?? { repo: i.repo, issues: 0, prs: 0 }
       i.type === 'pr' ? r.prs++ : r.issues++
       repos.set(i.repo, r)
     }
-    if (i.author) {
+    if (i.author && !i.bot) {
       const c = firsts.get(i.author)
       if (!c) firsts.set(i.author, { author: i.author, first: i, count: 1 })
       else {
@@ -131,7 +130,7 @@ export function overview(items: Item[], weeks: number, now = Date.now()) {
       openIssues: open.filter((i) => i.type === 'issue').length,
       openPrs: open.filter((i) => i.type === 'pr').length,
       waiting: open.filter(isWaiting).length,
-      communityPrs: open.filter((i) => i.type === 'pr' && !isMember(i)).length,
+      communityPrs: open.filter((i) => i.type === 'pr' && isCommunity(i)).length,
       untriaged: open.filter(isUntriaged).length,
       stale: open.filter((i) => now - Date.parse(i.updatedAt) >= STALE_DAYS * DAY).length,
     },

@@ -11,7 +11,7 @@ export interface Filters {
   draft: '' | 'yes' | 'no'
   review: string
   ci: string
-  who: '' | 'member' | 'community'
+  who: '' | AuthorKind
   updatedWithin: number
   staleFor: number
   created: string
@@ -26,7 +26,6 @@ export interface Filters {
 
 export const NONE = 'none'
 const DAY = 86_400_000
-const MEMBER_ASSOCIATIONS = new Set(['MEMBER', 'OWNER', 'COLLABORATOR'])
 const LIST_KEYS = ['state', 'repo', 'label'] as const
 const NUMBER_KEYS = ['updatedWithin', 'staleFor'] as const
 
@@ -54,7 +53,9 @@ export const DEFAULT_FILTERS: Filters = {
   item: '',
 }
 
-export const isMember = (item: Item) => MEMBER_ASSOCIATIONS.has(item.authorAssociation)
+export type AuthorKind = 'member' | 'community' | 'bot'
+export const authorKind = (item: Item): AuthorKind => (item.bot ? 'bot' : item.member ? 'member' : 'community')
+export const isCommunity = (item: Item) => authorKind(item) === 'community'
 
 function inRange(iso: string | null, range: string) {
   if (!range) return true
@@ -80,7 +81,7 @@ export function matches(item: Item, f: Filters, now = Date.now()): boolean {
     (!f.draft || (isPr && item.draft === (f.draft === 'yes'))) &&
     (!f.review || (isPr && (item.reviewDecision ?? NONE) === f.review)) &&
     (!f.ci || (isPr && (item.ci ?? NONE) === f.ci)) &&
-    (!f.who || isMember(item) === (f.who === 'member')) &&
+    (!f.who || authorKind(item) === f.who) &&
     (!f.updatedWithin || age <= f.updatedWithin * DAY) &&
     (!f.staleFor || age >= f.staleFor * DAY) &&
     inRange(item.createdAt, f.created) &&

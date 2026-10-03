@@ -14,6 +14,7 @@ import {
   type Icon,
 } from '@primer/octicons-react'
 import type { CiState, Item, ReviewDecision } from '../../shared/types.ts'
+import { authorKind } from './filters.ts'
 
 const relative = new Intl.RelativeTimeFormat('en', { numeric: 'auto' })
 const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
@@ -67,3 +68,17 @@ const REVIEW_ICONS: Record<NonNullable<ReviewDecision>, Icon> = { APPROVED: Veri
 export const ReviewIcon = ({ state }: { state: string }) => (
   <Labeled icon={REVIEW_ICONS[state as NonNullable<ReviewDecision>] ?? EyeIcon} label={`Review: ${state.replace('_', ' ').toLowerCase()}`} className={`review-${state}`} />
 )
+
+export function AuthorBadge({ item }: { item: Item }) {
+  const kind = authorKind(item)
+  if (kind === 'member') return null
+  return kind === 'bot' ? (
+    <span className="badge muted" title="Bot">
+      bot
+    </span>
+  ) : (
+    <span className="badge community" title="Community contributor">
+      ext
+    </span>
+  )
+}

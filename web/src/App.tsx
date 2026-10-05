@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent, type ReactNode } from 'react'
 import {
   createColumnHelper,
   createSortedRowModel,
@@ -281,17 +281,19 @@ function useViews() {
     const res = await fetch('/api/views', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(next) })
     const json = await res.json().catch(() => ({}))
     if (res.ok) setViews(json)
-    else alert(`Saving views failed: ${json.error ?? res.statusText}`)
+    return res.ok
   }
-  return [views, save] as const
+  return [views, save, error] as const
 }
 
 function SavedViews({ filters, preset, setPreset }: { filters: Filters } & Pick<Data, 'preset' | 'setPreset'>) {
-  const [views, save] = useViews()
+  const [views, save, error] = useViews()
+  const [name, setName] = useState('')
   const current = serializeFilters({ ...filters, item: '' })
-  const add = () => {
-    const name = prompt('Name for this view')?.trim()
-    if (name) save([...views.filter((v) => v.name !== name), { name, search: current, preset }])
+  const add = async (e: FormEvent) => {
+    e.preventDefault()
+    const trimmed = name.trim()
+    if (trimmed && (await save([...views.filter((v) => v.name !== trimmed), { name: trimmed, search: current, preset }]))) setName('')
   }
   return (
     <section className="views">
@@ -300,6 +302,7 @@ function SavedViews({ filters, preset, setPreset }: { filters: Filters } & Pick<
         <ul>
           {views.map((v) => (
             <li key={v.name}>
+  const [error, setError] = useState<string | null>(null)
               <a
                 href={v.search ? `/?${v.search}` : '/'}
                 aria-current={v.search === current && (!v.preset || v.preset === preset) ? 'page' : undefined}
@@ -308,6 +311,7 @@ function SavedViews({ filters, preset, setPreset }: { filters: Filters } & Pick<
                 {v.name}
                 {v.preset && v.preset !== preset && <span className="muted"> · {v.preset}</span>}
               </a>
+    setError(res.ok ? null : `Saving views failed: ${json.error ?? res.statusText}`)
               <button type="button" className="link" aria-label={`Remove ${v.name}`} title="Remove" onClick={() => save(views.filter((x) => x !== v))}>
                 <XIcon />
               </button>
@@ -315,9 +319,17 @@ function SavedViews({ filters, preset, setPreset }: { filters: Filters } & Pick<
           ))}
         </ul>
       )}
-      <button type="button" onClick={add}>
-        Save current filters
-      </button>
+      <form className="views-add" onSubmit={add}>
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name for current filters" aria-label="Name for current filters" />
+        <button type="submit" disabled={!name.trim()}>
+          Save
+        </button>
+      </form>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
     </section>
   )
 }

@@ -57,6 +57,9 @@ a { color: var(--accent); }
 .views { display: flex; flex-direction: column; gap: 0.3rem; }
 .views h2 { font-size: inherit; margin: 0; }
 .views ul { list-style: none; margin: 0; padding: 0; }
+.views-add { display: flex; gap: 0.25rem; }
+.views-add input { flex: 1; min-width: 0; }
+.views .error { margin: 0; }
 .views li { display: flex; align-items: center; gap: 0.25rem; }
 .views li a { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0.1rem 0.3rem; border-radius: 6px; color: inherit; text-decoration: none; }
 .views li a:hover, .views li a[aria-current] { background: var(--bg-alt); }

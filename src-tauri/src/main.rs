@@ -44,6 +44,7 @@ fn start_server(app: &tauri::App) -> Result<(Child, u16), Box<dyn std::error::Er
         .env("PORT", port.to_string())
         .env("DATA_DIR", &data)
         .env("PRESETS_FILE", &presets)
+        .env("MAPPING_FILE", data.join("mapping.json"))
         .stdout(log.try_clone()?)
         .stderr(log);
     if let Some(path) = login_shell_path() {

@@ -68,6 +68,12 @@ export interface LaunchRequest {
   worktree: boolean
   remoteControl: boolean
   dryRun?: boolean
+  dir?: string
+}
+
+export interface CheckoutOptions {
+  dirs: string[]
+  selected: string | null
 }
 
 export interface LaunchResponse {

@@ -20,7 +20,42 @@ export function Settings({ onSaved }: { onSaved: () => void }) {
     <div className="settings">
       <Presets onSaved={onSaved} />
       <LaunchForm onSaved={onSaved} />
+      <Folders />
     </div>
+  )
+}
+
+type Folder = { name: string; path: string; files: string }
+
+function Folders() {
+  const [folders, setFolders] = useState<Folder[]>([])
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    fetch('/api/folders')
+      .then((res) => res.json())
+      .then(setFolders, (err) => setError(String(err)))
+  }, [])
+
+  const open = async (name: string) => {
+    const res = await fetch('/api/folders/open', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }) })
+    setError(res.ok ? '' : (await res.json().catch(() => ({}))).error ?? `${res.status} ${res.statusText}`)
+  }
+
+  return (
+    <>
+      <h2>Files</h2>
+      {folders.map((f) => (
+        <p key={f.name}>
+          {f.name}:{' '}
+          <button type="button" className="link folder-link" onClick={() => open(f.name)} title="Open in Finder">
+            {f.path}
+          </button>{' '}
+          <span className="muted">{f.files}</span>
+        </p>
+      ))}
+      {error && <p className="error" role="alert">{error}</p>}
+    </>
   )
 }
 
@@ -164,7 +199,7 @@ function LaunchForm({ onSaved }: { onSaved: () => void }) {
         <label>
           Repository folder
           <input value={settings.reposDir} onChange={(e) => change({ reposDir: e.target.value })} placeholder="~/repos" spellCheck={false} />
-          <span className="muted">Checkouts live in this folder as one directory per repository. Missing ones are cloned with gh.</span>
+          <span className="muted">Existing checkouts are found up to four levels deep, including nested repositories and submodules. Missing ones are cloned with gh.</span>
         </label>
         <label>
           Superproject (optional)

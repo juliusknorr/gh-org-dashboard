@@ -1,14 +1,20 @@
+import { execFile } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { extname, join, normalize, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { AGENTS, TERMINALS, type ItemsResponse, type LaunchRequest, type SavedView, type Settings } from '../shared/types.ts'
-import { allItems, getMeta, markRead, setMeta } from './db.ts'
+import { allItems, dataDir, getMeta, markRead, setMeta } from './db.ts'
 import { fetchDetails, fetchRepoOptions, parseAction, renderMarkdown, runAction } from './items.ts'
-import { getSettings, launch, setSettings } from './launch.ts'
-import { HttpError, getPresets, getSyncStatus, isOrgMember, presetRepos, savePresets, startSync } from './sync.ts'
+import { checkoutOptions, getSettings, launch, setSettings } from './launch.ts'
+import { HttpError, configDir, getPresets, getSyncStatus, isOrgMember, presetRepos, savePresets, startSync } from './sync.ts'
 
 const PORT = Number(process.env.PORT ?? 3001)
+const dataPath = fileURLToPath(dataDir).replace(/\/$/, '')
+const folders = [
+  { name: 'Config', path: configDir, files: 'presets.json, mapping.json, .env' },
+  ...(dataPath === configDir ? [] : [{ name: 'Data', path: dataPath, files: 'dashboard.db, launch scripts' }]),
+]
 const SYNC_INTERVAL_MS = 5 * 60 * 1000
 const distDir = fileURLToPath(new URL('../web/dist/', import.meta.url))
 
@@ -133,7 +139,7 @@ async function serveStatic(pathname: string, res: ServerResponse): Promise<void>
 }
 
 createServer(async (req, res) => {
-  const { pathname } = new URL(req.url ?? '/', 'http://localhost')
+  const { pathname, searchParams } = new URL(req.url ?? '/', 'http://localhost')
   const itemRoute = pathname.match(/^\/api\/items\/([\w=-]{1,100})(\/actions)?$/)
   const optionsRoute = pathname.match(/^\/api\/repos\/([^/]+)\/options$/)
   const optionsRepo = optionsRoute && decodeURIComponent(optionsRoute[1])
@@ -170,13 +176,27 @@ createServer(async (req, res) => {
     }
     if (pathname === '/api/sync' && req.method === 'GET') return sendJson(res, getSyncStatus())
     if (pathname === '/api/sync' && req.method === 'POST') return sendJson(res, startSync())
+    if (pathname === '/api/folders' && req.method === 'GET') return sendJson(res, folders)
+    if (pathname === '/api/folders/open' && req.method === 'POST') {
+      const { name } = await readJson<{ name?: unknown }>(req)
+      const folder = folders.find((f) => f.name === name)
+      if (!folder) throw new HttpError(400, 'Unknown folder')
+      execFile('open', [folder.path])
+      return sendJson(res, folder)
+    }
+    if (pathname === '/api/checkouts' && req.method === 'GET') {
+      const item = allItems().find((i) => i.id === searchParams.get('id'))
+      return item ? sendJson(res, await checkoutOptions(item)) : sendJson(res, { error: 'Unknown item' }, 404)
+    }
     if (pathname === '/api/launch' && req.method === 'POST') {
       const body = await readJson<LaunchRequest>(req)
       const item = allItems().find((i) => i.id === body.id)
       if (!item || typeof body.prompt !== 'string' || !body.prompt.trim()) return sendJson(res, { error: 'Unknown item or empty prompt' }, 400)
       try {
-        return sendJson(res, await launch(item, { ...body, worktree: body.worktree === true, remoteControl: body.remoteControl === true }))
+        const dir = typeof body.dir === 'string' ? body.dir : undefined
+        return sendJson(res, await launch(item, { ...body, dir, worktree: body.worktree === true, remoteControl: body.remoteControl === true }))
       } catch (err) {
+        if (err instanceof HttpError) throw err
         return sendJson(res, { error: (err as Error).message }, 500)
       }
     }

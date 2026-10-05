@@ -1,9 +1,12 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { CiState, Item, ReviewDecision, SyncStatus } from '../shared/types.ts'
 import { deleteItemsOutside, getMeta, replaceAdvisories, setMeta, upsertItems } from './db.ts'
 
-const presetsFile = process.env.PRESETS_FILE ?? new URL('../presets.json', import.meta.url)
+const presetsFile = process.env.PRESETS_FILE ?? fileURLToPath(new URL('../presets.json', import.meta.url))
+export const configDir = dirname(presetsFile)
 const SOURCE = /^[\w.-]{1,39}(\/[\w.-]{1,100})?$/
 
 type Presets = Record<string, string[]>

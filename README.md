@@ -64,6 +64,11 @@ Merge is only offered when CI passes and the PR is approved; otherwise a force m
 Every row has a terminal button to start an interactive coding agent session for a PR (review), issue or advisory,
 with an editable prompt and extra instructions. Claude Code sessions run in a separate git worktree by default.
 
+The checkout is searched up to four levels below the repository folder, including nested repositories and
+submodules (for example `~/repos/nextcloud/server/apps-extra/deck`), by matching any git remote. When several
+checkouts match, the dialog asks which one to use and stores it as the default in `mapping.json`
+(`{ "owner/repo": "~/path" }`, next to `presets.json`). Without a match the repository is cloned into the folder.
+
 cmux only accepts commands from processes started inside cmux by default. Either start the server from a
 cmux terminal, or set `automation.socketControlMode` to `password` in `~/.config/cmux/cmux.json` and put
 the password in `CMUX_SOCKET_PASSWORD`.

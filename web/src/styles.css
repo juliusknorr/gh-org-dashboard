@@ -251,6 +251,7 @@ dialog.shortcuts dd { margin: 0; }
 .settings :is(input, textarea, select) { font: inherit; font-weight: normal; padding: 0.3rem; }
 .settings textarea { font-family: ui-monospace, monospace; resize: vertical; }
 .settings fieldset > button { align-self: flex-start; }
+.settings .folder-link { color: var(--accent); font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
 .settings .row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
 .ov-group { display: flex; flex-direction: column; gap: 0.6rem; }
 .ov-group > h2 { margin: 0; font-size: 1.05rem; }

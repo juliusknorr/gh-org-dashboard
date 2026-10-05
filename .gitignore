@@ -4,3 +4,4 @@ web/dist
 .playwright-mcp
 .env
 presets.json
+mapping.json

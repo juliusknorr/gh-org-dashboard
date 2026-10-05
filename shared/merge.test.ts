@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { mergeBlockers } from './merge.ts'
+import { mergeBlockers, mergeableOnceApproved } from './merge.ts'
 import type { Item, ItemDetails, PrDetails } from './types.ts'
 
 const details = (item: Partial<Item> = {}, pr: Partial<PrDetails> = {}): ItemDetails => ({
@@ -18,4 +18,13 @@ test('mergeBlockers', () => {
   assert.deepEqual(mergeBlockers(details({ reviewDecision: null, ci: null })), { hard: [], soft: ['No CI results', 'Not approved'] })
   assert.deepEqual(mergeBlockers(details({ ci: 'FAILURE', reviewDecision: 'CHANGES_REQUESTED' })).soft, ['CI is failure', 'Changes requested'])
   assert.deepEqual(mergeBlockers(details({ draft: true }, { mergeable: 'CONFLICTING' })).hard, ['Pull request is a draft', 'Merge conflicts with the base branch'])
+})
+
+test('mergeableOnceApproved', () => {
+  assert.equal(mergeableOnceApproved(details()), true)
+  assert.equal(mergeableOnceApproved(details({ reviewDecision: 'REVIEW_REQUIRED' })), true)
+  assert.equal(mergeableOnceApproved(details({ reviewDecision: 'CHANGES_REQUESTED' })), false)
+  assert.equal(mergeableOnceApproved(details({ ci: 'PENDING' })), false)
+  assert.equal(mergeableOnceApproved(details({}, { mergeable: 'UNKNOWN' })), false)
+  assert.equal(mergeableOnceApproved(details({}, { mergeable: 'CONFLICTING' })), false)
 })

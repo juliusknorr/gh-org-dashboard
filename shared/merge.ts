@@ -5,6 +5,8 @@ export interface MergeBlockers {
   soft: string[]
 }
 
+const NOT_APPROVED = 'Not approved'
+
 export function mergeBlockers({ item, pr }: ItemDetails): MergeBlockers {
   const hard: string[] = []
   const soft: string[] = []
@@ -20,6 +22,11 @@ export function mergeBlockers({ item, pr }: ItemDetails): MergeBlockers {
   const changesRequested = item.reviewDecision === 'CHANGES_REQUESTED' || pr.reviews.some((r) => r.state === 'CHANGES_REQUESTED')
   const approved = item.reviewDecision === 'APPROVED' || (item.reviewDecision === null && pr.reviews.some((r) => r.state === 'APPROVED'))
   if (changesRequested) soft.push('Changes requested')
-  else if (!approved) soft.push('Not approved')
+  else if (!approved) soft.push(NOT_APPROVED)
   return { hard, soft }
+}
+
+export function mergeableOnceApproved(details: ItemDetails): boolean {
+  const { hard, soft } = mergeBlockers(details)
+  return !hard.length && soft.every((b) => b === NOT_APPROVED)
 }

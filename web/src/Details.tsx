@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type SyntheticEvent } from 'react'
 import type { Item, ItemAction, ItemDetails, MergeMethod, PrDetails, RepoOptions, Review, ReviewEvent } from '../../shared/types.ts'
-import { mergeBlockers } from '../../shared/merge.ts'
+import { mergeBlockers, mergeableOnceApproved } from '../../shared/merge.ts'
 import {
   AlertIcon,
   CheckIcon,
@@ -311,20 +311,27 @@ function ForceMergeDialog({ details, onConfirm, onClose }: { details: ItemDetail
   )
 }
 
-function ReviewDialog({ details, run, onClose }: { details: ItemDetails; run: (a: ItemAction) => Promise<void>; onClose: () => void }) {
+function ReviewDialog({ details, method, run, onClose }: { details: ItemDetails; method?: MergeMethod; run: (a: ItemAction) => Promise<void>; onClose: () => void }) {
   const [event, setEvent] = useState<ReviewEvent>('APPROVE')
   const [comment, setComment] = useState('')
+  const [approved, setApproved] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const dialogRef = useRef<HTMLDialogElement>(null)
   useEffect(() => dialogRef.current?.showModal(), [])
+  const headOid = details.pr!.headOid
+  const canMerge = event === 'APPROVE' && !!method && mergeableOnceApproved(details)
   const needsComment = event === 'REQUEST_CHANGES' && !comment.trim()
-  const submit = async () => {
+  const submit = async (merge: boolean) => {
     if (busy || needsComment) return
     setBusy(true)
     setError(null)
     try {
-      await run({ type: 'review', event, expectedHeadOid: details.pr!.headOid, comment: comment.trim() || undefined })
+      if (!approved) await run({ type: 'review', event, expectedHeadOid: headOid, comment: comment.trim() || undefined })
+      if (merge) {
+        setApproved(true)
+        await run({ type: 'merge', method: method!, expectedHeadOid: headOid, force: false })
+      }
       dialogRef.current?.close()
     } catch (e) {
       setError((e as Error).message)
@@ -333,9 +340,9 @@ function ReviewDialog({ details, run, onClose }: { details: ItemDetails; run: (a
   }
   return (
     <dialog ref={dialogRef} className="launch" onClose={onClose}>
-      <form method="dialog" onSubmit={(e) => (e.preventDefault(), submit())}>
+      <form method="dialog" onSubmit={(e) => (e.preventDefault(), submit(canMerge))}>
         <h2>Review {itemRef(details.item)}</h2>
-        <fieldset className="presets">
+        <fieldset className="presets" disabled={approved}>
           <legend>Verdict</legend>
           <label>
             <input type="radio" name="event" checked={event === 'APPROVE'} onChange={() => setEvent('APPROVE')} /> Approve
@@ -349,8 +356,9 @@ function ReviewDialog({ details, run, onClose }: { details: ItemDetails; run: (a
           <textarea
             rows={4}
             value={comment}
+            disabled={approved}
             onChange={(e) => setComment(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && (e.preventDefault(), submit())}
+            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && (e.preventDefault(), submit(canMerge))}
             placeholder={event === 'APPROVE' ? 'Optional, Enter to submit, Shift+Enter for a new line' : 'Required, Enter to submit, Shift+Enter for a new line'}
             autoFocus
           />
@@ -364,9 +372,26 @@ function ReviewDialog({ details, run, onClose }: { details: ItemDetails; run: (a
           <button type="button" onClick={() => dialogRef.current?.close()}>
             Cancel
           </button>
-          <button type="submit" className={event === 'APPROVE' ? 'primary' : 'danger'} disabled={busy || needsComment}>
-            {event === 'APPROVE' ? <CheckIcon /> : <AlertIcon />} {event === 'APPROVE' ? 'Approve' : 'Request changes'}
-          </button>
+          {event === 'REQUEST_CHANGES' ? (
+            <button type="submit" className="danger" disabled={busy || needsComment}>
+              <AlertIcon /> Request changes
+            </button>
+          ) : canMerge ? (
+            <>
+              {!approved && (
+                <button type="button" disabled={busy} onClick={() => submit(false)}>
+                  <CheckIcon /> Approve
+                </button>
+              )}
+              <button type="submit" className="primary" disabled={busy}>
+                <GitMergeIcon /> {approved ? 'Retry merge' : 'Approve and merge'}
+              </button>
+            </>
+          ) : (
+            <button type="submit" className="primary" disabled={busy}>
+              <CheckIcon /> Approve
+            </button>
+          )}
         </div>
       </form>
     </dialog>
@@ -483,7 +508,7 @@ function Footer({ details, run }: { details: ItemDetails; run: (a: ItemAction) =
         )}
         {busy && <span className="muted">Working…</span>}
       </div>
-      {reviewing && <ReviewDialog details={details} run={run} onClose={() => setReviewing(false)} />}
+      {reviewing && <ReviewDialog details={details} method={method} run={run} onClose={() => setReviewing(false)} />}
       {forcing && <ForceMergeDialog details={details} onConfirm={() => merge(true)} onClose={() => setForcing(false)} />}
     </footer>
   )

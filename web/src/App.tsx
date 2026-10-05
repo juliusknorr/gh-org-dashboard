@@ -613,8 +613,8 @@ function useLocation() {
 export function App() {
   const { pathname, search } = useLocation()
   const data = useData()
-  if (pathname !== '/overview' && pathname !== '/team') return <Items {...data} />
   const items = useMemo(() => (data.data?.items ?? EMPTY).filter((i) => i.type !== 'advisory'), [data.data])
+  if (pathname !== '/overview' && pathname !== '/team') return <Items {...data} />
   return (
     <div className="layout page">
       <Header data={data.data} sync={data.sync} preset={data.preset} setPreset={data.setPreset} />

@@ -6,7 +6,7 @@ import type { ItemsResponse, LaunchRequest, SavedView } from '../shared/types.ts
 import { allItems, getMeta, setMeta } from './db.ts'
 import { fetchDetails, fetchRepoOptions, parseAction, renderMarkdown, runAction } from './items.ts'
 import { launch } from './launch.ts'
-import { HttpError, getSyncStatus, isOrgMember, presetRepos, startSync } from './sync.ts'
+import { HttpError, getPresets, getSyncStatus, isOrgMember, presetRepos, savePresets, startSync } from './sync.ts'
 
 const PORT = Number(process.env.PORT ?? 3001)
 const SYNC_INTERVAL_MS = 5 * 60 * 1000
@@ -119,6 +119,8 @@ createServer(async (req, res) => {
     if (itemRoute?.[2] && req.method === 'POST') return sendJson(res, await runAction(itemRoute[1], parseAction(await readJson(req))))
     if (optionsRepo && req.method === 'GET') return sendJson(res, await fetchRepoOptions(optionsRepo))
     if (pathname === '/api/markdown' && req.method === 'POST') return sendJson(res, await renderMarkdown(await readJson(req)))
+    if (pathname === '/api/presets' && req.method === 'GET') return sendJson(res, getPresets())
+    if (pathname === '/api/presets' && req.method === 'POST') return sendJson(res, await savePresets(await readJson(req)))
     if (pathname === '/api/views' && req.method === 'GET') return sendJson(res, JSON.parse(getMeta('views') ?? '[]'))
     if (pathname === '/api/views' && req.method === 'POST') {
       const views = parseViews(await readJson(req))

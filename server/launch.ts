@@ -2,15 +2,17 @@ import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import type { Item, LaunchRequest, LaunchResponse } from '../shared/types.ts'
+import { dataDir } from './db.ts'
 
 const run = promisify(execFile)
 
 const TERMINAL = process.env.TERMINAL ?? 'iterm'
 const REPOS_DIR = (process.env.REPOS_DIR ?? '~/repos/euro-office').replace(/^~(?=\/|$)/, homedir())
 const SUPERPROJECT = process.env.SUPERPROJECT ?? 'DocumentServer'
-const scriptsDir = new URL('../data/launch/', import.meta.url).pathname
+const scriptsDir = fileURLToPath(new URL('launch/', dataDir))
 
 export const shellQuote = (s: string) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replaceAll("'", `'\\''`)}'`)
 

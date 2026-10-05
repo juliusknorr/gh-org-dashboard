@@ -1,11 +1,12 @@
 import { mkdirSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import type { Item } from '../shared/types.ts'
 
-const dataDir = new URL('../data/', import.meta.url)
+export const dataDir = process.env.DATA_DIR ? pathToFileURL(`${process.env.DATA_DIR}/`) : new URL('../data/', import.meta.url)
 mkdirSync(dataDir, { recursive: true })
 
-const db = new DatabaseSync(new URL('dashboard.db', dataDir).pathname, { timeout: 5000 })
+const db = new DatabaseSync(fileURLToPath(new URL('dashboard.db', dataDir)), { timeout: 5000 })
 db.exec(`
   PRAGMA journal_mode = WAL;
   CREATE TABLE IF NOT EXISTS items (id TEXT PRIMARY KEY, repo TEXT NOT NULL, updated_at TEXT NOT NULL, json TEXT NOT NULL);
@@ -21,6 +22,9 @@ const upsertStmt = db.prepare(
 const allStmt = db.prepare('SELECT json FROM items ORDER BY updated_at DESC')
 const deleteStmt = db.prepare('DELETE FROM items WHERE id = ?')
 const deleteOutsideStmt = db.prepare('DELETE FROM items WHERE lower(repo) NOT IN (SELECT lower(value) FROM json_each(?))')
+const deleteWatermarksOutsideStmt = db.prepare(
+  "DELETE FROM meta WHERE key LIKE 'repo:%:updatedAt' AND lower(substr(key, 6, length(key) - 15)) NOT IN (SELECT lower(value) FROM json_each(?))",
+)
 const deleteAdvisoriesStmt = db.prepare(
   "DELETE FROM items WHERE json_extract(json, '$.type') = 'advisory' AND lower(repo) IN (SELECT lower(value) FROM json_each(?)) AND id NOT IN (SELECT value FROM json_each(?))",
 )
@@ -47,6 +51,7 @@ export function deleteItem(id: string): void {
 }
 
 export function deleteItemsOutside(repos: string[]): void {
+  deleteWatermarksOutsideStmt.run(JSON.stringify(repos))
   const { changes } = deleteOutsideStmt.run(JSON.stringify(repos))
   if (changes) console.log(`removed ${changes} items from repos no longer in a preset`)
 }

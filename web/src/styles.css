@@ -228,6 +228,14 @@ button.icon-button:hover { color: var(--fg); border-color: var(--border); backgr
 .ov-stat:hover { border-color: var(--accent); }
 .ov-stat strong { font-size: 1.5rem; font-weight: 600; }
 .ov-stat span { color: var(--muted); }
+.settings { padding: 1rem; display: flex; flex-direction: column; gap: 0.75rem; max-width: 720px; }
+.settings h2, .settings p { margin: 0; }
+.settings fieldset { margin: 0; }
+.settings label { display: flex; flex-direction: column; gap: 0.2rem; font-weight: 600; }
+.settings :is(input, textarea) { font: inherit; font-weight: normal; padding: 0.3rem; }
+.settings textarea { font-family: ui-monospace, monospace; resize: vertical; }
+.settings fieldset > button { align-self: flex-start; }
+.settings .row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
 .ov-group { display: flex; flex-direction: column; gap: 0.6rem; }
 .ov-group > h2 { margin: 0; font-size: 1.05rem; }
 .ov-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 400px), 1fr)); gap: 1rem; align-items: start; }

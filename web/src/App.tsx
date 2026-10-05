@@ -24,6 +24,7 @@ import {
 import { LaunchDialog } from './LaunchDialog.tsx'
 import { Details } from './Details.tsx'
 import { Overview } from './Overview.tsx'
+import { Settings } from './Settings.tsx'
 import { Team } from './Team.tsx'
 import { CommentIcon, IssueOpenedIcon, SidebarCollapseIcon, SidebarExpandIcon, SyncIcon, TerminalIcon, XIcon } from '@primer/octicons-react'
 import { AuthorBadge, CiIcon, ReviewIcon, StateIcon, Time, textColor } from './format.tsx'
@@ -221,7 +222,7 @@ function useData() {
     const timer = setInterval(poll, running ? SYNC_POLL_MS : IDLE_POLL_MS)
     return () => clearInterval(timer)
   }, [running, lastSyncAt, load])
-  return { data, error, sync, replaceItem, preset, setPreset }
+  return { data, error, sync, replaceItem, preset, setPreset, reload: load }
 }
 
 type Counts = [string, number][]
@@ -546,6 +547,7 @@ const PAGES = [
   ['/', 'Items'],
   ['/overview', 'Overview'],
   ['/team', 'Team'],
+  ['/settings', 'Settings'],
 ] as const
 
 function Header({ data, sync, preset, setPreset, children }: Pick<Data, 'data' | 'sync' | 'preset' | 'setPreset'> & { children?: ReactNode }) {
@@ -614,13 +616,19 @@ export function App() {
   const { pathname, search } = useLocation()
   const data = useData()
   const items = useMemo(() => (data.data?.items ?? EMPTY).filter((i) => i.type !== 'advisory'), [data.data])
-  if (pathname !== '/overview' && pathname !== '/team') return <Items {...data} />
+  if (!['/overview', '/team', '/settings'].includes(pathname)) return <Items {...data} />
   return (
     <div className="layout page">
       <Header data={data.data} sync={data.sync} preset={data.preset} setPreset={data.setPreset} />
       {data.error && <p className="error" role="alert">Failed to load: {data.error}</p>}
       <main>
-        {pathname === '/team' ? <Team items={items} search={search} /> : <Overview items={items} search={search} />}
+        {pathname === '/settings' ? (
+          <Settings onSaved={data.reload} />
+        ) : pathname === '/team' ? (
+          <Team items={items} search={search} />
+        ) : (
+          <Overview items={items} search={search} />
+        )}
       </main>
     </div>
   )

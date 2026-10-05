@@ -11,9 +11,24 @@ npm run server & npm run dev      # http://localhost:5173
 
 Filters live in the URL. Use "Save current filters" in the sidebar to keep a named view, together with the selected preset. Data is synced every 5 minutes into `data/dashboard.db`.
 
+## Desktop app
+
+A macOS app built with [Tauri](https://tauri.app) wraps the same server and UI. It needs Rust (`brew install rust`).
+
+```sh
+npm run app       # builds src-tauri/target/release/bundle/macos/GH Dashboard.app and a .dmg
+npm run app:dev   # runs it unbundled
+npm run app:install  # builds and installs it to /Applications
+```
+
+The build downloads the official Node binary matching your `node -v` and bundles it with the server.
+The app keeps its database, `presets.json`, `.env` and `server.log` in `~/Library/Application Support/local.gh-org-dashboard/`.
+It uses `gh`, `git` and `claude` from your login shell's PATH.
+`app:install` seeds a new app data folder from `data/dashboard.db` and `presets.json`.
+
 ## Configuration
 
-Teams are defined in `presets.json`. Each entry is either an org or a single `owner/repo`:
+Teams are defined in `presets.json`, editable on the Settings page. Each entry is either an org or a single `owner/repo`:
 
 ```json
 {

@@ -1,0 +1,27 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "GH Dashboard",
+  "version": "0.1.0",
+  "identifier": "local.gh-org-dashboard",
+  "build": {
+    "frontendDist": "../web/dist",
+    "beforeDevCommand": "npm run build && node scripts/fetch-node.mjs",
+    "beforeBuildCommand": "npm run build && node scripts/fetch-node.mjs"
+  },
+  "app": {
+    "windows": [],
+    "security": { "csp": null }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "dmg"],
+    "externalBin": ["binaries/node"],
+    "resources": {
+      "../server/": "server/",
+      "../shared/": "shared/",
+      "../web/dist/": "web/dist/",
+      "../presets.json": "presets.json"
+    },
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.png"]
+  }
+}

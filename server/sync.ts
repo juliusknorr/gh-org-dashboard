@@ -1,25 +1,34 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import type { CiState, Item, ReviewDecision, SyncStatus } from '../shared/types.ts'
 import { deleteItemsOutside, getMeta, replaceAdvisories, setMeta, upsertItems } from './db.ts'
 
-const presetsFile = new URL('../presets.json', import.meta.url)
+const presetsFile = process.env.PRESETS_FILE ?? new URL('../presets.json', import.meta.url)
 const SOURCE = /^[\w.-]{1,39}(\/[\w.-]{1,100})?$/
 const fallbackOrg = process.env.ORG ?? 'Euro-Office'
 
-function loadPresets(): Record<string, string[]> {
-  if (!existsSync(presetsFile)) return { [fallbackOrg]: [fallbackOrg] }
-  const presets = JSON.parse(readFileSync(presetsFile, 'utf8')) as Record<string, string[]>
+type Presets = Record<string, string[]>
+
+function validatePresets(presets: unknown): Presets {
+  if (!presets || typeof presets !== 'object' || Array.isArray(presets) || !Object.keys(presets).length) throw new Error('Define at least one preset')
   for (const [name, sources] of Object.entries(presets)) {
-    if (!Array.isArray(sources) || !sources.every((s) => typeof s === 'string' && SOURCE.test(s))) {
-      throw new Error(`presets.json: "${name}" must be a list of "org" or "owner/repo" entries`)
+    if (!name.trim() || name.length > 100) throw new Error('Preset names must be 1 to 100 characters')
+    if (!Array.isArray(sources) || !sources.length || sources.length > 200 || !sources.every((s) => typeof s === 'string' && SOURCE.test(s))) {
+      throw new Error(`"${name}" needs a list of "org" or "owner/repo" entries`)
     }
   }
-  return presets
+  return presets as Presets
 }
 
-const PRESETS = loadPresets()
-const SOURCES = [...new Set(Object.values(PRESETS).flat())]
+const loadPresets = (): Presets =>
+  existsSync(presetsFile) ? validatePresets(JSON.parse(readFileSync(presetsFile, 'utf8'))) : { [fallbackOrg]: [fallbackOrg] }
+
+const sourcesOf = (presets: Presets) => [...new Set(Object.values(presets).flat())]
+
+let PRESETS = loadPresets()
+let SOURCES = sourcesOf(PRESETS)
+
+export const getPresets = () => PRESETS
 const sourceRepos: Record<string, string[]> = JSON.parse(getMeta('sourceRepos') ?? '{}')
 
 export const presetRepos = (): Record<string, string[]> =>
@@ -399,9 +408,9 @@ export async function restList<T>(path: string): Promise<T[]> {
 
 const advisoriesDenied = new Set<string>()
 
-async function syncAdvisories(errors: string[]): Promise<number> {
+async function syncAdvisories(sources: string[], errors: string[]): Promise<number> {
   let count = 0
-  for (const source of SOURCES) {
+  for (const source of sources) {
     const path = `${source.includes('/') ? '/repos' : '/orgs'}/${source}/security-advisories?per_page=100`
     try {
       const items = (await restList<Advisory>(path)).map(advisoryItem).filter((i) => isSyncedRepo(i.repo))
@@ -443,22 +452,23 @@ async function runSync(): Promise<void> {
   }
   const started = Date.now()
   await loadOrgMembers()
-  for (const source of SOURCES) sourceRepos[source] = source.includes('/') ? [source] : await listRepos(source)
+  const sources = SOURCES
+  for (const source of sources) sourceRepos[source] = source.includes('/') ? [source] : await listRepos(source)
   setMeta('sourceRepos', JSON.stringify(sourceRepos))
-  const repos = [...new Set(SOURCES.flatMap((s) => sourceRepos[s]))]
+  const repos = [...new Set(sources.flatMap((s) => sourceRepos[s]))]
   if (repos.length) deleteItemsOutside(repos)
   const errors: string[] = []
   const unsynced = repos.filter((repo) => !getMeta(`repo:${repo}:updatedAt`))
   await syncRepos(unsynced, errors)
   const searchedAt = getMeta('searchedAt')
   const perRepo = new Set<string>()
-  for (const source of SOURCES) {
+  for (const source of sources) {
     if (searchedAt === null || !(await searchSync(source, searchedAt))) for (const r of sourceRepos[source]) perRepo.add(r)
   }
   const failedBefore = errors.length
   await syncRepos([...perRepo].filter((r) => !unsynced.includes(r)), errors)
   const viaSearch = !perRepo.size
-  const advisories = await syncAdvisories(errors)
+  const advisories = await syncAdvisories(sources, errors)
   if (errors.length === failedBefore) setMeta('searchedAt', new Date(started).toISOString())
   status.error = errors.length ? errors.join('\n') : null
   status.lastSyncAt = new Date().toISOString()
@@ -477,7 +487,54 @@ export function startSync(): SyncStatus {
       })
       .finally(() => {
         status.running = false
+        if (syncAgain) {
+          syncAgain = false
+          startSync()
+        }
       })
   }
   return getSyncStatus()
+}
+
+let syncAgain = false
+
+function requestSync(): void {
+  if (status.running) syncAgain = true
+  else startSync()
+}
+
+async function missingSources(sources: string[]): Promise<string[]> {
+  const unknown = sources.filter((s) => !SOURCES.includes(s))
+  const found = await Promise.all(
+    unknown.map(async (source) => {
+      const [owner, name] = source.split('/')
+      const query = name
+        ? 'query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { id } }'
+        : 'query($owner: String!) { organization(login: $owner) { id } }'
+      try {
+        const data = await graphql<{ repository?: { id: string } | null; organization?: { id: string } | null }>(query, name ? { owner, name } : { owner }, 1)
+        return !!(data.repository ?? data.organization)
+      } catch (err) {
+        if (err instanceof HttpError && err.status === 404) return false
+        throw err
+      }
+    }),
+  )
+  return unknown.filter((_, i) => !found[i])
+}
+
+export async function savePresets(body: unknown): Promise<Presets> {
+  let presets: Presets
+  try {
+    presets = validatePresets(body)
+  } catch (err) {
+    throw new HttpError(400, (err as Error).message)
+  }
+  const missing = await missingSources(sourcesOf(presets))
+  if (missing.length) throw new HttpError(400, `Not found on GitHub or not accessible: ${missing.join(', ')}`)
+  writeFileSync(presetsFile, `${JSON.stringify(presets, null, 2)}\n`)
+  PRESETS = presets
+  SOURCES = sourcesOf(presets)
+  requestSync()
+  return presets
 }

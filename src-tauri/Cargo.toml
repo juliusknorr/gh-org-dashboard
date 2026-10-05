@@ -1,0 +1,11 @@
+[package]
+name = "gh-dashboard"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+
+[build-dependencies]
+tauri-build = { version = "2.7.1", features = [] }
+
+[dependencies]
+tauri = { version = "2.12.1", features = [] }

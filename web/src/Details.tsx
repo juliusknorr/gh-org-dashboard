@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type SyntheticEvent } from 'react'
 import type { Item, ItemAction, ItemDetails, MergeMethod, PrDetails, RepoOptions, Review, ReviewEvent } from '../../shared/types.ts'
-import { mergeBlockers, mergeableOnceApproved } from '../../shared/merge.ts'
+import { mergeBlockers, mergeableOnceApproved, reviewState } from '../../shared/merge.ts'
 import {
   AlertIcon,
   CheckIcon,
   ChecklistIcon,
   CodeReviewIcon,
   CommentIcon,
+  DotFillIcon,
   DuplicateIcon,
   EyeIcon,
   GitBranchIcon,
@@ -147,12 +148,27 @@ function ResizeHandle() {
   )
 }
 
-function PrSummary({ pr }: { pr: PrDetails }) {
+const PASSING = ['SUCCESS', 'NEUTRAL', 'SKIPPED']
+
+function PrSummary({ item, pr, onShowChecks }: { item: Item; pr: PrDetails; onShowChecks: () => void }) {
+  const review = reviewState(item, pr)
+  const passed = pr.checks.filter((c) => PASSING.includes(c.conclusion ?? '')).length
   return (
-    <p className="byline">
-      <GitBranchIcon /> <code>{pr.headRef}</code> → <code>{pr.baseRef}</code> · <span className="add">+{pr.additions}</span>{' '}
-      <span className="del">−{pr.deletions}</span> · {pr.changedFiles} files
-    </p>
+    <>
+      <p className="byline">
+        <GitBranchIcon /> <code>{pr.headRef}</code> → <code>{pr.baseRef}</code> · <span className="add">+{pr.additions}</span>{' '}
+        <span className="del">−{pr.deletions}</span> · {pr.changedFiles} files
+      </p>
+      <p className="byline">
+        <button type="button" className="link" onClick={onShowChecks}>
+          {item.ci ? <CiIcon ci={item.ci} /> : <DotFillIcon />} {pr.checks.length ? `${passed}/${pr.checks.length} checks passed` : 'No checks'}
+        </button>
+        ·
+        <button type="button" className="link" onClick={onShowChecks}>
+          {review ? <ReviewIcon state={review} /> : <EyeIcon />} {review ? review.replace('_', ' ').toLowerCase() : 'no reviews'}
+        </button>
+      </p>
+    </>
   )
 }
 
@@ -577,7 +593,7 @@ export function Details({ id, listItem, onItem, onClose, onHelp }: { id: string;
             )}
           </p>
         )}
-        {pr && <PrSummary pr={pr} />}
+        {pr && item && <PrSummary item={item} pr={pr} onShowChecks={() => setTab('checks')} />}
         {item?.type === 'advisory' && (
           <p className="row">
             {item.labels.map((l) => (

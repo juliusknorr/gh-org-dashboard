@@ -1,4 +1,4 @@
-import type { ItemDetails } from './types.ts'
+import type { ItemDetails, PrDetails, ReviewDecision } from './types.ts'
 
 export interface MergeBlockers {
   hard: string[]
@@ -6,6 +6,12 @@ export interface MergeBlockers {
 }
 
 const NOT_APPROVED = 'Not approved'
+
+export function reviewState(item: ItemDetails['item'], pr: PrDetails): ReviewDecision {
+  if (item.reviewDecision === 'CHANGES_REQUESTED' || pr.reviews.some((r) => r.state === 'CHANGES_REQUESTED')) return 'CHANGES_REQUESTED'
+  if (item.reviewDecision === 'APPROVED' || (item.reviewDecision === null && pr.reviews.some((r) => r.state === 'APPROVED'))) return 'APPROVED'
+  return item.reviewDecision
+}
 
 export function mergeBlockers({ item, pr }: ItemDetails): MergeBlockers {
   const hard: string[] = []
@@ -19,10 +25,9 @@ export function mergeBlockers({ item, pr }: ItemDetails): MergeBlockers {
   if (item.ci === null) soft.push('No CI results')
   else if (item.ci !== 'SUCCESS') soft.push(`CI is ${item.ci.toLowerCase()}`)
 
-  const changesRequested = item.reviewDecision === 'CHANGES_REQUESTED' || pr.reviews.some((r) => r.state === 'CHANGES_REQUESTED')
-  const approved = item.reviewDecision === 'APPROVED' || (item.reviewDecision === null && pr.reviews.some((r) => r.state === 'APPROVED'))
-  if (changesRequested) soft.push('Changes requested')
-  else if (!approved) soft.push(NOT_APPROVED)
+  const review = reviewState(item, pr)
+  if (review === 'CHANGES_REQUESTED') soft.push('Changes requested')
+  else if (review !== 'APPROVED') soft.push(NOT_APPROVED)
   return { hard, soft }
 }
 

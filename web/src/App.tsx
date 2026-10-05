@@ -10,7 +10,7 @@ import {
   type Updater,
 } from '@tanstack/react-table'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import type { Item, ItemsResponse, SyncStatus } from '../../shared/types.ts'
+import type { Item, ItemsResponse, SavedView, SyncStatus } from '../../shared/types.ts'
 import {
   DEFAULT_FILTERS,
   NONE,
@@ -25,13 +25,14 @@ import { LaunchDialog } from './LaunchDialog.tsx'
 import { Details } from './Details.tsx'
 import { Overview } from './Overview.tsx'
 import { Team } from './Team.tsx'
-import { CommentIcon, IssueOpenedIcon, SidebarCollapseIcon, SidebarExpandIcon, SyncIcon, TerminalIcon } from '@primer/octicons-react'
+import { CommentIcon, IssueOpenedIcon, SidebarCollapseIcon, SidebarExpandIcon, SyncIcon, TerminalIcon, XIcon } from '@primer/octicons-react'
 import { AuthorBadge, CiIcon, ReviewIcon, StateIcon, Time, textColor } from './format.tsx'
 
 const ROW_HEIGHT = 36
 const SYNC_POLL_MS = 2000
 const IDLE_POLL_MS = 30_000
 const EMPTY: Item[] = []
+const PRESET_KEY = 'preset'
 
 const features = tableFeatures({
   rowSortingFeature,
@@ -56,7 +57,7 @@ const columns = col.columns([
       </button>
     ),
   }),
-  col.accessor((i) => (i.type === 'pr' ? (i.draft ? 'PR draft' : 'PR') : 'Issue'), {
+  col.accessor((i) => (i.type === 'pr' ? (i.draft ? 'PR draft' : 'PR') : i.type === 'advisory' ? 'Advisory' : 'Issue'), {
     id: 'type',
     header: () => <IssueOpenedIcon aria-label="Type" />,
     cell: (c) => <StateIcon item={c.row.original} />,
@@ -66,7 +67,8 @@ const columns = col.columns([
     header: 'Ref',
     cell: (c) => (
       <>
-        <FilterButton filter="repo" value={c.row.original.repo} />#{c.row.original.number}
+        <FilterButton filter="repo" value={c.row.original.repo} />
+        {c.row.original.type === 'advisory' ? ` ${c.row.original.id}` : `#${c.row.original.number}`}
       </>
     ),
   }),
@@ -151,8 +153,32 @@ function useUrlFilters() {
   return [filters, update] as const
 }
 
+function usePreset(presets: string[]) {
+  const [stored, setStored] = useState(() => {
+    try {
+      return localStorage.getItem(PRESET_KEY)
+    } catch {
+      return null
+    }
+  })
+  const preset = stored && presets.includes(stored) ? stored : (presets[0] ?? null)
+  const setPreset = (name: string) => {
+    try {
+      localStorage.setItem(PRESET_KEY, name)
+    } catch {}
+    setStored(name)
+  }
+  return [preset, setPreset] as const
+}
+
 function useData() {
-  const [data, setData] = useState<ItemsResponse | null>(null)
+  const [all, setData] = useState<ItemsResponse | null>(null)
+  const [preset, setPreset] = usePreset(Object.keys(all?.presets ?? {}))
+  const data = useMemo(() => {
+    if (!all || !preset) return all
+    const repos = new Set(all.presets[preset].map((r) => r.toLowerCase()))
+    return { ...all, items: all.items.filter((i) => repos.has(i.repo.toLowerCase())) }
+  }, [all, preset])
   const [error, setError] = useState<string | null>(null)
   const load = useCallback(async () => {
     try {
@@ -195,7 +221,7 @@ function useData() {
     const timer = setInterval(poll, running ? SYNC_POLL_MS : IDLE_POLL_MS)
     return () => clearInterval(timer)
   }, [running, lastSyncAt, load])
-  return { data, error, sync, replaceItem }
+  return { data, error, sync, replaceItem, preset, setPreset }
 }
 
 type Counts = [string, number][]
@@ -243,7 +269,65 @@ function Multi({ label, values, counts, onChange, open }: { label: string; value
   )
 }
 
-function Sidebar({ items, filters, update }: { items: Item[]; filters: Filters; update: (p: Partial<Filters>, replace?: boolean) => void }) {
+function useViews() {
+  const [views, setViews] = useState<SavedView[]>([])
+  useEffect(() => {
+    fetch('/api/views')
+      .then((res) => (res.ok ? res.json() : []))
+      .then(setViews, () => {})
+  }, [])
+  const save = async (next: SavedView[]) => {
+    const res = await fetch('/api/views', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(next) })
+    const json = await res.json().catch(() => ({}))
+    if (res.ok) setViews(json)
+    else alert(`Saving views failed: ${json.error ?? res.statusText}`)
+  }
+  return [views, save] as const
+}
+
+function SavedViews({ filters, preset, setPreset }: { filters: Filters } & Pick<Data, 'preset' | 'setPreset'>) {
+  const [views, save] = useViews()
+  const current = serializeFilters({ ...filters, item: '' })
+  const add = () => {
+    const name = prompt('Name for this view')?.trim()
+    if (name) save([...views.filter((v) => v.name !== name), { name, search: current, preset }])
+  }
+  return (
+    <section className="views">
+      <h2>Saved views</h2>
+      {views.length > 0 && (
+        <ul>
+          {views.map((v) => (
+            <li key={v.name}>
+              <a
+                href={v.search ? `/?${v.search}` : '/'}
+                aria-current={v.search === current && (!v.preset || v.preset === preset) ? 'page' : undefined}
+                onClick={() => v.preset && setPreset(v.preset)}
+              >
+                {v.name}
+                {v.preset && v.preset !== preset && <span className="muted"> · {v.preset}</span>}
+              </a>
+              <button type="button" className="link" aria-label={`Remove ${v.name}`} title="Remove" onClick={() => save(views.filter((x) => x !== v))}>
+                <XIcon />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <button type="button" onClick={add}>
+        Save current filters
+      </button>
+    </section>
+  )
+}
+
+function Sidebar({
+  items,
+  filters,
+  update,
+  preset,
+  setPreset,
+}: { items: Item[]; filters: Filters; update: (p: Partial<Filters>, replace?: boolean) => void } & Pick<Data, 'preset' | 'setPreset'>) {
   const facet = (key: keyof Filters, values: (i: Item) => (string | null)[]) =>
     countBy(filterItems(items, { ...filters, [key]: Array.isArray(filters[key]) ? [] : DEFAULT_FILTERS[key] }), values)
   const prOnly = (pick: (i: Item) => string | null) => (i: Item) => (i.type === 'pr' ? [pick(i)] : [])
@@ -251,6 +335,7 @@ function Sidebar({ items, filters, update }: { items: Item[]; filters: Filters; 
 
   return (
     <aside>
+      <SavedViews filters={filters} preset={preset} setPreset={setPreset} />
       <label>
         Search
         <input type="search" placeholder="title or repo#123" value={filters.q} onChange={(e) => update({ q: e.target.value }, true)} />
@@ -314,7 +399,7 @@ function useFiltersHidden() {
   return [hidden, toggle] as const
 }
 
-function Items({ data, error, sync, replaceItem }: Data) {
+function Items({ data, error, sync, replaceItem, preset, setPreset }: Data) {
   const [filtersHidden, toggleFilters] = useFiltersHidden()
   const [filters, update] = useUrlFilters()
   const items = data?.items ?? EMPTY
@@ -392,7 +477,7 @@ function Items({ data, error, sync, replaceItem }: Data) {
 
   return (
     <div className={['layout', filters.item && 'with-details', filtersHidden && 'filters-hidden'].filter(Boolean).join(' ')}>
-      <Header data={data} sync={sync}>
+      <Header data={data} sync={sync} preset={preset} setPreset={setPreset}>
         <button
           type="button"
           className="icon-button"
@@ -408,7 +493,7 @@ function Items({ data, error, sync, replaceItem }: Data) {
         </output>
       </Header>
       {error && <p className="error" role="alert">Failed to load: {error}</p>}
-      {!filtersHidden && <Sidebar items={items} filters={filters} update={update} />}
+      {!filtersHidden && <Sidebar items={items} filters={filters} update={update} preset={preset} setPreset={setPreset} />}
       <main ref={scrollRef}>
         <table>
           <thead>
@@ -463,10 +548,21 @@ const PAGES = [
   ['/team', 'Team'],
 ] as const
 
-function Header({ data, sync, children }: Pick<Data, 'data' | 'sync'> & { children?: ReactNode }) {
+function Header({ data, sync, preset, setPreset, children }: Pick<Data, 'data' | 'sync' | 'preset' | 'setPreset'> & { children?: ReactNode }) {
+  const presets = Object.keys(data?.presets ?? {})
   return (
     <header>
-      <h1>{data?.org ?? 'GitHub org'}</h1>
+      {presets.length > 1 ? (
+        <h1>
+          <select className="preset" value={preset ?? ''} onChange={(e) => setPreset(e.target.value)} aria-label="Team preset">
+            {presets.map((name) => (
+              <option key={name}>{name}</option>
+            ))}
+          </select>
+        </h1>
+      ) : (
+        <h1>{preset ?? 'GitHub org'}</h1>
+      )}
       <nav className="tabs">
         {PAGES.map(([path, label]) => (
           <a key={path} href={path} aria-current={location.pathname === path ? 'page' : undefined}>
@@ -518,10 +614,10 @@ export function App() {
   const { pathname, search } = useLocation()
   const data = useData()
   if (pathname !== '/overview' && pathname !== '/team') return <Items {...data} />
-  const items = data.data?.items ?? EMPTY
+  const items = useMemo(() => (data.data?.items ?? EMPTY).filter((i) => i.type !== 'advisory'), [data.data])
   return (
     <div className="layout page">
-      <Header data={data.data} sync={data.sync} />
+      <Header data={data.data} sync={data.sync} preset={data.preset} setPreset={data.setPreset} />
       {data.error && <p className="error" role="alert">Failed to load: {data.error}</p>}
       <main>
         {pathname === '/team' ? <Team items={items} search={search} /> : <Overview items={items} search={search} />}

@@ -90,6 +90,7 @@ export function overview(items: Item[], weeks: number, now = Date.now()) {
   const triageTimes: number[][] = series.map(() => [])
   const open = items.filter((i) => i.state === 'open')
   const repos = new Map<string, { repo: string; issues: number; prs: number }>()
+  const attention = new Map<string, { repo: string; untriaged: number; unreviewed: number }>()
   const firsts = new Map<string, Contributor>()
 
   for (const i of items) {
@@ -104,6 +105,12 @@ export function overview(items: Item[], weeks: number, now = Date.now()) {
       const r = repos.get(i.repo) ?? { repo: i.repo, issues: 0, prs: 0 }
       i.type === 'pr' ? r.prs++ : r.issues++
       repos.set(i.repo, r)
+      const waiting = isUntriaged(i) ? 'untriaged' : isWaiting(i) ? 'unreviewed' : null
+      if (waiting) {
+        const a = attention.get(i.repo) ?? { repo: i.repo, untriaged: 0, unreviewed: 0 }
+        a[waiting]++
+        attention.set(i.repo, a)
+      }
     }
     if (i.author && !i.bot) {
       const c = firsts.get(i.author)
@@ -147,6 +154,7 @@ export function overview(items: Item[], weeks: number, now = Date.now()) {
       waiting: open.filter((i) => isUntriaged(i) && i.createdAt >= fromIso).length,
     },
     repos: [...repos.values()].sort((a, b) => b.issues + b.prs - (a.issues + a.prs) || a.repo.localeCompare(b.repo)),
+    attention: [...attention.values()].sort((a, b) => b.untriaged + b.unreviewed - (a.untriaged + a.unreviewed) || a.repo.localeCompare(b.repo)),
     stale: open.toSorted(byDate('updatedAt')).slice(0, TOP),
     untriaged: open.filter(isUntriaged).sort(byDate('createdAt')).slice(0, TOP),
     unreviewed: open.filter(isWaiting).sort(byDate('createdAt')).slice(0, TOP),

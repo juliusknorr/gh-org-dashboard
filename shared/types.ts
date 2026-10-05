@@ -1,4 +1,4 @@
-export type ItemType = 'issue' | 'pr'
+export type ItemType = 'issue' | 'pr' | 'advisory'
 export type ItemState = 'open' | 'closed' | 'merged'
 export type ReviewDecision = 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null
 export type CiState = 'SUCCESS' | 'FAILURE' | 'PENDING' | 'ERROR' | 'EXPECTED' | null
@@ -37,9 +37,15 @@ export interface SyncStatus {
 }
 
 export interface ItemsResponse {
-  org: string
+  presets: Record<string, string[]>
   items: Item[]
   sync: SyncStatus
+}
+
+export interface SavedView {
+  name: string
+  search: string
+  preset: string | null
 }
 
 export interface LaunchRequest {

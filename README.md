@@ -1,6 +1,6 @@
 # gh-org-dashboard
 
-Local dashboard for all issues and pull requests of a GitHub org.
+Local dashboard for all issues and pull requests of one or more GitHub orgs and repos.
 
 ```sh
 npm install
@@ -9,14 +9,27 @@ npm run build && npm start        # http://localhost:3001
 npm run server & npm run dev      # http://localhost:5173
 ```
 
-Filters live in the URL, bookmark a view to save it. Data is synced every 5 minutes into `data/dashboard.db`.
+Filters live in the URL. Use "Save current filters" in the sidebar to keep a named view, together with the selected preset. Data is synced every 5 minutes into `data/dashboard.db`.
 
 ## Configuration
+
+Teams are defined in `presets.json`. Each entry is either an org or a single `owner/repo`:
+
+```json
+{
+  "office": ["Euro-Office", "nextcloud/richdocuments"],
+  "productivity": ["nextcloud/deck", "nextcloud/text"]
+}
+```
+
+All presets are synced into one database, and the header switches between them.
+Authors count as members when they belong to the org that owns the repo.
+Without `presets.json`, `ORG` is used as the only preset.
 
 Optional `.env` in the project root:
 
 ```sh
-ORG=Euro-Office                 # GitHub org to sync
+ORG=Euro-Office                 # GitHub org to sync without presets.json
 GITHUB_TOKEN=                   # default: `gh auth token`
 PORT=3001
 TERMINAL=iterm                  # iterm or cmux, used to launch Claude Code

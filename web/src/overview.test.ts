@@ -113,3 +113,24 @@ test('triage times skip member-opened issues', () => {
   assert.equal(o.totals.untriaged, 2)
   assert.equal(o.untriaged[0].createdAt, at(100))
 })
+
+test('counts untriaged issues and unreviewed PRs per repository', () => {
+  const o = overview(
+    [
+      item({ type: 'issue', repo: 'a/x' }),
+      item({ type: 'issue', repo: 'a/x', triagedAt: at(1) }),
+      item({ type: 'pr', repo: 'a/x' }),
+      item({ type: 'pr', repo: 'a/x', draft: true }),
+      item({ type: 'pr', repo: 'b/y' }),
+      item({ type: 'pr', repo: 'b/y' }),
+      item({ type: 'pr', repo: 'b/y', firstReviewAt: at(1) }),
+      item({ type: 'issue', repo: 'c/z', state: 'closed', closedAt: at(1) }),
+    ],
+    4,
+    now,
+  )
+  assert.deepEqual(o.attention, [
+    { repo: 'a/x', untriaged: 1, unreviewed: 1 },
+    { repo: 'b/y', untriaged: 0, unreviewed: 2 },
+  ])
+})

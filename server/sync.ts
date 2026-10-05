@@ -1,8 +1,34 @@
 import { execFileSync } from 'node:child_process'
+import { existsSync, readFileSync } from 'node:fs'
 import type { CiState, Item, ReviewDecision, SyncStatus } from '../shared/types.ts'
-import { deleteItemsOutside, getMeta, setMeta, upsertItems } from './db.ts'
+import { deleteItemsOutside, getMeta, replaceAdvisories, setMeta, upsertItems } from './db.ts'
 
-export const ORG = process.env.ORG ?? 'Euro-Office'
+const presetsFile = new URL('../presets.json', import.meta.url)
+const SOURCE = /^[\w.-]{1,39}(\/[\w.-]{1,100})?$/
+const fallbackOrg = process.env.ORG ?? 'Euro-Office'
+
+function loadPresets(): Record<string, string[]> {
+  if (!existsSync(presetsFile)) return { [fallbackOrg]: [fallbackOrg] }
+  const presets = JSON.parse(readFileSync(presetsFile, 'utf8')) as Record<string, string[]>
+  for (const [name, sources] of Object.entries(presets)) {
+    if (!Array.isArray(sources) || !sources.every((s) => typeof s === 'string' && SOURCE.test(s))) {
+      throw new Error(`presets.json: "${name}" must be a list of "org" or "owner/repo" entries`)
+    }
+  }
+  return presets
+}
+
+const PRESETS = loadPresets()
+const SOURCES = [...new Set(Object.values(PRESETS).flat())]
+const sourceRepos: Record<string, string[]> = JSON.parse(getMeta('sourceRepos') ?? '{}')
+
+export const presetRepos = (): Record<string, string[]> =>
+  Object.fromEntries(Object.entries(PRESETS).map(([name, sources]) => [name, sources.flatMap((s) => sourceRepos[s] ?? (s.includes('/') ? [s] : []))]))
+
+export const isSyncedRepo = (repo: string) =>
+  SOURCES.some((s) => (sourceRepos[s] ?? [s]).some((r) => r.toLowerCase() === repo.toLowerCase()))
+
+const ownerOf = (repo: string) => repo.split('/')[0].toLowerCase()
 const CONCURRENCY = 4
 const MAX_ATTEMPTS = 3
 const MIN_RATE_BUDGET = 500
@@ -31,6 +57,22 @@ export class HttpError extends Error {
 
 const graphqlErrorStatus: Record<string, number> = { NOT_FOUND: 404, FORBIDDEN: 403 }
 
+function describe(query: string, variables: Record<string, unknown>): string {
+  const [first, second] = [...query.matchAll(/(\w+)\s*\(/g)].map((m) => m[1]).filter((n) => n !== 'query' && n !== 'mutation')
+  const field = first === 'repository' || first === 'organization' ? `${first}.${second}` : first
+  const args = Object.entries(variables)
+    .filter(([key, value]) => key !== 'cursor' && value != null)
+    .map(([key, value]) => `${key}=${String(value).slice(0, 80)}`)
+  return `${field}(${args.join(' ')})`
+}
+
+function rateInfo(headers: Headers): string {
+  const remaining = headers.get('x-ratelimit-remaining')
+  if (remaining === null) return 'no rate limit headers'
+  const reset = new Date(Number(headers.get('x-ratelimit-reset')) * 1000).toLocaleTimeString()
+  return `${remaining}/${headers.get('x-ratelimit-limit')} points left, resets ${reset}`
+}
+
 type GraphQLResponse<T> = { data?: T; errors?: { message: string; type?: string }[] }
 
 export async function rest(method: string, path: string, body: unknown): Promise<string> {
@@ -56,8 +98,13 @@ export async function graphql<T>(query: string, variables: Record<string, unknow
     }
     const retryable = res.status === 403 || res.status === 429 || res.status >= 500
     if (retryable && attempt < maxAttempts) {
-      const waitSeconds = Number(res.headers.get('retry-after')) || 5 * attempt
-      console.warn(`GitHub ${res.status}, retrying in ${waitSeconds}s`)
+      const retryAfter = Number(res.headers.get('retry-after'))
+      const waitSeconds = retryAfter || 5 * attempt
+      const reason = (await res.text()).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200)
+      console.warn(
+        `GitHub ${res.status} on ${describe(query, variables)}, attempt ${attempt}/${maxAttempts}, ${rateInfo(res.headers)}: ${reason || 'no body'}. ` +
+          `Retrying in ${waitSeconds}s${retryAfter ? ' (retry-after header)' : ''}`,
+      )
       await new Promise((resolve) => setTimeout(resolve, waitSeconds * 1000))
       continue
     }
@@ -76,16 +123,16 @@ export async function graphql<T>(query: string, variables: Record<string, unknow
 
 type Page<T> = { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: T[] }
 
-async function listRepos(): Promise<string[]> {
+async function listRepos(org: string): Promise<string[]> {
   const query = `query($org: String!, $cursor: String) {
-    organization(login: $org) { repositories(first: 100, after: $cursor, isArchived: false) { pageInfo { hasNextPage endCursor } nodes { name } } }
+    organization(login: $org) { repositories(first: 100, after: $cursor, isArchived: false) { pageInfo { hasNextPage endCursor } nodes { nameWithOwner } } }
   }`
   const names: string[] = []
   let cursor: string | null = null
   do {
-    const data: { organization: { repositories: Page<{ name: string }> } } = await graphql(query, { org: ORG, cursor })
+    const data: { organization: { repositories: Page<{ nameWithOwner: string }> } } = await graphql(query, { org, cursor })
     const page = data.organization.repositories
-    names.push(...page.nodes.map((r) => r.name))
+    names.push(...page.nodes.map((r) => r.nameWithOwner))
     cursor = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null
   } while (cursor)
   return names
@@ -137,36 +184,49 @@ type Author = { __typename?: string; login: string }
 
 const isBot = (author: Author | null | undefined) => !!author && (author.__typename === 'Bot' || author.login.endsWith('[bot]'))
 
-const orgMembers = new Set<string>(JSON.parse(getMeta('orgMembers') ?? '[]'))
+const members = new Map<string, Set<string>>(Object.entries(JSON.parse(getMeta('members') ?? '{}') as Record<string, string[]>).map(([o, l]) => [o, new Set(l)]))
 
-export const isOrgMember = (login: string | null) => login !== null && orgMembers.has(login)
+export const isOrgMember = (repo: string, login: string | null | undefined) => !!login && !!members.get(ownerOf(repo))?.has(login)
 
-export async function loadOrgMembers(): Promise<void> {
+async function loadOwnerMembers(owner: string): Promise<string[]> {
   const query = `query($org: String!, $cursor: String) {
     organization(login: $org) { membersWithRole(first: 100, after: $cursor) { pageInfo { hasNextPage endCursor } nodes { login } } }
   }`
   const logins: string[] = []
   let cursor: string | null = null
   do {
-    const data: { organization: { membersWithRole: Page<{ login: string }> } } = await graphql(query, { org: ORG, cursor })
+    const data: { organization: { membersWithRole: Page<{ login: string }> } } = await graphql(query, { org: owner, cursor })
     logins.push(...data.organization.membersWithRole.nodes.map((m) => m.login))
     cursor = data.organization.membersWithRole.pageInfo.hasNextPage ? data.organization.membersWithRole.pageInfo.endCursor : null
   } while (cursor)
-  orgMembers.clear()
-  for (const login of logins) orgMembers.add(login)
-  setMeta('orgMembers', JSON.stringify(logins))
+  return logins
 }
 
-export const ensureOrgMembers = () => (orgMembers.size ? Promise.resolve() : loadOrgMembers())
+export async function loadOrgMembers(): Promise<void> {
+  const owners = [...new Set(SOURCES.map(ownerOf))]
+  const lists = await Promise.all(
+    owners.map((owner) =>
+      loadOwnerMembers(owner).catch((err) => {
+        if (err instanceof HttpError && err.status === 404) return [owner]
+        throw err
+      }),
+    ),
+  )
+  members.clear()
+  owners.forEach((owner, i) => members.set(owner, new Set(lists[i])))
+  setMeta('members', JSON.stringify(Object.fromEntries(owners.map((o, i) => [o, lists[i]]))))
+}
 
-function triage(node: RawNode): { triagedAt: string | null; triagedBy: string | null } {
+export const ensureOrgMembers = () => (members.size ? Promise.resolve() : loadOrgMembers())
+
+function triage(repo: string, node: RawNode): { triagedAt: string | null; triagedBy: string | null } {
   if (node.isDraft !== undefined) return { triagedAt: null, triagedBy: null }
   const author = node.author?.login
   if (isBot(node.author)) return { triagedAt: node.createdAt, triagedBy: null }
-  if (author && orgMembers.has(author)) return { triagedAt: node.createdAt, triagedBy: author }
+  if (author && isOrgMember(repo, author)) return { triagedAt: node.createdAt, triagedBy: author }
   const first = (node.triageEvents?.nodes ?? [])
     .map((e) => ({ at: e.createdAt, by: (e.author ?? e.actor)?.login }))
-    .filter((e) => e.by && orgMembers.has(e.by))
+    .filter((e) => isOrgMember(repo, e.by))
     .sort((a, b) => a.at.localeCompare(b.at))[0]
   return { triagedAt: first?.at ?? null, triagedBy: first?.by ?? null }
 }
@@ -183,7 +243,7 @@ export function toItem(repo: string, node: RawNode): Item {
     state: node.state === 'MERGED' ? 'merged' : node.state === 'OPEN' ? 'open' : 'closed',
     draft: node.isDraft ?? false,
     author: node.author?.login ?? null,
-    member: isOrgMember(node.author?.login ?? null),
+    member: isOrgMember(repo, node.author?.login),
     bot: isBot(node.author),
     assignees: node.assignees.nodes.map((a) => a.login),
     labels: node.labels.nodes.map(({ name, color }) => ({ name, color })),
@@ -202,62 +262,162 @@ export function toItem(repo: string, node: RawNode): Item {
         .filter((r) => r.submittedAt && r.author?.login !== node.author?.login && !isBot(r.author))
         .map((r) => r.submittedAt!)
         .sort()[0] ?? null,
-    ...triage(node),
+    ...triage(repo, node),
   }
 }
 
-async function syncConnection(repo: string, connection: 'issues' | 'pullRequests', since: string | null): Promise<string | null> {
+async function syncConnection(repo: string, connection: 'issues' | 'pullRequests', since: string | null): Promise<{ newest: string | null; count: number }> {
   const fields = connection === 'pullRequests' ? COMMON_FIELDS + PR_FIELDS : COMMON_FIELDS + ISSUE_FIELDS
-  const query = `query($org: String!, $repo: String!, $cursor: String, $pageSize: Int!) {
-    repository(owner: $org, name: $repo) {
+  const [owner, name] = repo.split('/')
+  const query = `query($owner: String!, $name: String!, $cursor: String, $pageSize: Int!) {
+    repository(owner: $owner, name: $name) {
+      nameWithOwner
       ${connection}(first: $pageSize, after: $cursor, orderBy: { field: UPDATED_AT, direction: DESC }) { pageInfo { hasNextPage endCursor } nodes { ${fields} } }
     }
   }`
   const overlapSince = since && new Date(Date.parse(since) - SEARCH_OVERLAP_MS).toISOString()
   let newest: string | null = null
+  let count = 0
   let cursor: string | null = null
   do {
-    const data: { repository: Record<string, Page<RawNode>> } = await graphql(query, { org: ORG, repo, cursor, pageSize: since ? 10 : 100 })
+    const data: { repository: { nameWithOwner: string } & Record<string, Page<RawNode>> } = await graphql(query, { owner, name, cursor, pageSize: since ? 10 : 100 })
     const page = data.repository[connection]
     const fresh = page.nodes.filter((n) => !overlapSince || n.updatedAt >= overlapSince)
-    upsertItems(fresh.map((n) => toItem(repo, n)))
+    upsertItems(fresh.map((n) => toItem(data.repository.nameWithOwner, n)))
+    count += fresh.length
+    if (!since && page.pageInfo.hasNextPage && count % 1000 < fresh.length) console.log(`full sync ${repo}: ${count} ${connection} so far`)
     newest ??= fresh[0]?.updatedAt ?? null
     const reachedWatermark = fresh.length < page.nodes.length
     cursor = page.pageInfo.hasNextPage && !reachedWatermark ? page.pageInfo.endCursor : null
   } while (cursor)
-  return newest
+  return { newest, count }
 }
 
 async function syncRepo(repo: string): Promise<void> {
   const key = `repo:${repo}:updatedAt`
   const since = getMeta(key)
-  const newest = (await Promise.all([syncConnection(repo, 'issues', since), syncConnection(repo, 'pullRequests', since)]))
+  const started = Date.now()
+  const [issues, prs] = await Promise.all([syncConnection(repo, 'issues', since), syncConnection(repo, 'pullRequests', since)])
+  const newest = [issues.newest, prs.newest]
     .filter((d): d is string => d !== null)
     .sort()
     .at(-1)
   setMeta(key, newest ?? since ?? NEVER)
+  if (!since) console.log(`full sync ${repo} done: ${issues.count} issues, ${prs.count} PRs in ${((Date.now() - started) / 1000).toFixed(1)}s`)
 }
 
-async function searchSync(since: string): Promise<boolean> {
+async function searchSync(source: string, since: string): Promise<boolean> {
   const from = new Date(Date.parse(since) - SEARCH_OVERLAP_MS).toISOString().replace(/\.\d+Z$/, 'Z')
   const query = `query($q: String!, $cursor: String) {
     search(query: $q, type: ISSUE, first: 50, after: $cursor) {
       issueCount pageInfo { hasNextPage endCursor }
       nodes {
-        ... on Issue { repository { name } ${COMMON_FIELDS} ${ISSUE_FIELDS} }
-        ... on PullRequest { repository { name } ${COMMON_FIELDS} ${PR_FIELDS} }
+        ... on Issue { repository { nameWithOwner } ${COMMON_FIELDS} ${ISSUE_FIELDS} }
+        ... on PullRequest { repository { nameWithOwner } ${COMMON_FIELDS} ${PR_FIELDS} }
       }
     }
   }`
   let cursor: string | null = null
   do {
-    type SearchNode = RawNode & { repository: { name: string } }
-    const { search }: { search: Page<SearchNode> & { issueCount: number } } = await graphql(query, { q: `org:${ORG} updated:>=${from}`, cursor })
+    type SearchNode = RawNode & { repository: { nameWithOwner: string } }
+    const q = `${source.includes('/') ? 'repo' : 'org'}:${source} updated:>=${from}`
+    const { search }: { search: Page<SearchNode> & { issueCount: number } } = await graphql(query, { q, cursor })
     if (search.issueCount > SEARCH_RESULT_CAP) return false
-    upsertItems(search.nodes.map((n) => toItem(n.repository.name, n)))
+    upsertItems(search.nodes.map((n) => toItem(n.repository.nameWithOwner, n)))
     cursor = search.pageInfo.hasNextPage ? search.pageInfo.endCursor : null
   } while (cursor)
   return true
+}
+
+type Advisory = {
+  ghsa_id: string
+  url: string
+  html_url: string
+  summary: string
+  description: string | null
+  state: 'triage' | 'draft' | 'published' | 'closed' | 'withdrawn'
+  severity: string | null
+  author: { login: string; type: string } | null
+  comments?: number
+  created_at: string
+  updated_at: string
+  published_at: string | null
+  closed_at: string | null
+  withdrawn_at: string | null
+}
+
+export const isAdvisoryId = (id: string) => id.startsWith('GHSA-')
+const SEVERITY_COLORS: Record<string, string> = { critical: 'b60205', high: 'd93f0b', medium: 'fbca04', low: 'c5def5' }
+const OPEN_ADVISORY_STATES = ['triage', 'draft']
+
+export function advisoryItem(a: Advisory): Item {
+  const repo = a.url.split('/repos/')[1].split('/security-advisories')[0]
+  const open = OPEN_ADVISORY_STATES.includes(a.state)
+  const author = a.author && { __typename: a.author.type, login: a.author.login }
+  return {
+    id: a.ghsa_id,
+    type: 'advisory',
+    repo,
+    number: 0,
+    title: a.summary,
+    url: a.html_url,
+    state: open ? 'open' : 'closed',
+    draft: false,
+    author: a.author?.login ?? null,
+    member: isOrgMember(repo, a.author?.login),
+    bot: isBot(author),
+    assignees: [],
+    labels: [
+      { name: `advisory:${a.state}`, color: 'ededed' },
+      ...(a.severity ? [{ name: `severity:${a.severity}`, color: SEVERITY_COLORS[a.severity] ?? 'ededed' }] : []),
+    ],
+    milestone: null,
+    reviewRequests: [],
+    reviewDecision: null,
+    ci: null,
+    comments: a.comments ?? 0,
+    createdAt: a.created_at,
+    updatedAt: a.updated_at,
+    closedAt: open ? null : (a.closed_at ?? a.withdrawn_at ?? a.published_at ?? a.updated_at),
+    firstReviewAt: null,
+    triagedAt: null,
+    triagedBy: null,
+  }
+}
+
+export async function restList<T>(path: string): Promise<T[]> {
+  const all: T[] = []
+  let url: string | null = `https://api.github.com${path}`
+  while (url) {
+    const res: Response = await fetch(url, { headers: { authorization: `bearer ${token}`, accept: 'application/vnd.github+json' } })
+    if (!res.ok) throw new HttpError(res.status, `GitHub HTTP ${res.status} on ${path}: ${(await res.text()).slice(0, 200)}`)
+    all.push(...((await res.json()) as T[]))
+    url = res.headers.get('link')?.match(/<([^>]+)>;\s*rel="next"/)?.[1] ?? null
+  }
+  return all
+}
+
+const advisoriesDenied = new Set<string>()
+
+async function syncAdvisories(errors: string[]): Promise<number> {
+  let count = 0
+  for (const source of SOURCES) {
+    const path = `${source.includes('/') ? '/repos' : '/orgs'}/${source}/security-advisories?per_page=100`
+    try {
+      const items = (await restList<Advisory>(path)).map(advisoryItem).filter((i) => isSyncedRepo(i.repo))
+      replaceAdvisories(sourceRepos[source], items)
+      count += items.length
+    } catch (err) {
+      if (err instanceof HttpError && (err.status === 403 || err.status === 404)) {
+        if (!advisoriesDenied.has(source)) console.warn(`no access to security advisories of ${source}, skipping: ${err.message}`)
+        advisoriesDenied.add(source)
+        continue
+      }
+      console.error(`sync advisories of ${source} failed:`, err)
+      errors.push(`${source} advisories: ${(err as Error).message}`)
+    }
+  }
+  return count
 }
 
 async function syncRepos(repos: string[], errors: string[]): Promise<void> {
@@ -283,20 +443,28 @@ async function runSync(): Promise<void> {
   }
   const started = Date.now()
   await loadOrgMembers()
-  const repos = await listRepos()
+  for (const source of SOURCES) sourceRepos[source] = source.includes('/') ? [source] : await listRepos(source)
+  setMeta('sourceRepos', JSON.stringify(sourceRepos))
+  const repos = [...new Set(SOURCES.flatMap((s) => sourceRepos[s]))]
   if (repos.length) deleteItemsOutside(repos)
   const errors: string[] = []
   const unsynced = repos.filter((repo) => !getMeta(`repo:${repo}:updatedAt`))
   await syncRepos(unsynced, errors)
   const searchedAt = getMeta('searchedAt')
-  const viaSearch = searchedAt !== null && (await searchSync(searchedAt))
-  if (!viaSearch) await syncRepos(repos.filter((r) => !unsynced.includes(r)), errors)
-  if (viaSearch || !errors.length) setMeta('searchedAt', new Date(started).toISOString())
+  const perRepo = new Set<string>()
+  for (const source of SOURCES) {
+    if (searchedAt === null || !(await searchSync(source, searchedAt))) for (const r of sourceRepos[source]) perRepo.add(r)
+  }
+  const failedBefore = errors.length
+  await syncRepos([...perRepo].filter((r) => !unsynced.includes(r)), errors)
+  const viaSearch = !perRepo.size
+  const advisories = await syncAdvisories(errors)
+  if (errors.length === failedBefore) setMeta('searchedAt', new Date(started).toISOString())
   status.error = errors.length ? errors.join('\n') : null
   status.lastSyncAt = new Date().toISOString()
   setMeta('lastSyncAt', status.lastSyncAt)
   const mode = [unsynced.length && `${unsynced.length} full`, viaSearch ? 'search' : 'per repo'].filter(Boolean).join(' + ')
-  console.log(`synced ${repos.length} repos (${mode}) in ${((Date.now() - started) / 1000).toFixed(1)}s, ${rateLimit.remaining} API points left${errors.length ? `, ${errors.length} failed` : ''}`)
+  console.log(`synced ${repos.length} repos (${mode}) and ${advisories} advisories in ${((Date.now() - started) / 1000).toFixed(1)}s, ${rateLimit.remaining} API points left${errors.length ? `, ${errors.length} failed` : ''}`)
 }
 
 export function startSync(): SyncStatus {

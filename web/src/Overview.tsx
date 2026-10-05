@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import type { Item } from '../../shared/types.ts'
-import { AuthorBadge, StateIcon, Time } from './format.tsx'
+import { AuthorBadge, StateIcon, Time, itemRef } from './format.tsx'
 import { DAY, RANGES, isoDate, overview, weekRange, type Week } from './overview.ts'
 
 const DEFAULT_WEEKS = 12
@@ -170,9 +170,7 @@ function ItemList({ items, link, date }: { items: Item[]; link: (i: Item) => str
         <li key={i.id}>
           <StateIcon item={i} />
           <a href={link(i)} title={i.title}>
-            <span className="muted">
-              {i.repo}#{i.number}
-            </span>{' '}
+            <span className="muted">{itemRef(i)}</span>{' '}
             {i.title}
           </a>
           <Time iso={date(i)} />
@@ -182,14 +180,23 @@ function ItemList({ items, link, date }: { items: Item[]; link: (i: Item) => str
   )
 }
 
-function Section({ title, more, children, wide }: { title: string; more?: [string, string]; children: ReactNode; wide?: boolean }) {
+function Section({ title, more, children }: { title: string; more?: [string, string]; children: ReactNode }) {
   return (
-    <section className={wide ? 'ov-card wide' : 'ov-card'}>
-      <h2>
+    <section className="ov-card">
+      <h3>
         {title}
         {more && <a href={more[0]}>{more[1]}</a>}
-      </h2>
+      </h3>
       {children}
+    </section>
+  )
+}
+
+function Group({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="ov-group">
+      <h2>{title}</h2>
+      <div className="ov-grid">{children}</div>
     </section>
   )
 }
@@ -223,7 +230,7 @@ export function Overview({ items, search }: { items: Item[]; search: string }) {
         <Stat href={to({ staleFor: 30, sort: 'updated' })} value={o.totals.stale} label="Stale (>30 days)" />
       </div>
 
-      <div className="ov-grid">
+      <Group title="Activity">
         <Section title="Issues opened vs closed">
           <WeekChart
             title="Per week"
@@ -234,6 +241,7 @@ export function Overview({ items, search }: { items: Item[]; search: string }) {
             ]}
           />
         </Section>
+
         <Section title="PRs opened vs closed/merged">
           <WeekChart
             title="Per week"
@@ -245,50 +253,101 @@ export function Overview({ items, search }: { items: Item[]; search: string }) {
           />
         </Section>
 
-        <Section title="Time to first review" more={[to({ ...ALL, type: 'pr', created: since, firstReview: 'yes' }), `${o.review.reviewed} reviewed`]}>
-          <div className="ov-stats">
-            <Stat href={to({ ...ALL, type: 'pr', created: since, firstReview: 'yes' })} value={duration(o.review.median)} label="Median" />
-            <Stat href={to({ ...ALL, type: 'pr', created: since, firstReview: 'yes' })} value={duration(o.review.p90)} label="p90" />
-            <Stat href={to({ ...WAITING, created: since, sort: 'created' })} value={o.review.waiting} label="Still waiting" />
-          </div>
-          <WeekChart
-            title="Median per week (by PR opened)"
-            weeks={o.series}
-            series={[
-              {
-                label: 'Median',
-                className: 'ov-s1',
-                value: (w) => w.reviewMedian,
-                href: (w) => to({ ...ALL, type: 'pr', created: weekRange(w.start), firstReview: 'yes' }),
-                format: duration,
-              },
-            ]}
-          />
-        </Section>
-
-        <Section title="Time to triage" more={[to({ ...ALL, type: 'issue', created: since, triaged: 'yes', who: 'community' }), `${o.triage.triaged} triaged`]}>
-          <div className="ov-stats">
-            <Stat href={to({ ...ALL, type: 'issue', created: since, triaged: 'yes', who: 'community' })} value={duration(o.triage.median)} label="Median" />
-            <Stat href={to({ ...ALL, type: 'issue', created: since, triaged: 'yes', who: 'community' })} value={duration(o.triage.p90)} label="p90" />
-            <Stat href={to({ ...UNTRIAGED, created: since, sort: 'created' })} value={o.triage.waiting} label="Still untriaged" />
-          </div>
-          <WeekChart
-            title="Median per week (by issue opened, excluding member-opened)"
-            weeks={o.series}
-            series={[
-              {
-                label: 'Median',
-                className: 'ov-s1',
-                value: (w) => w.triageMedian,
-                href: (w) => to({ ...ALL, type: 'issue', created: weekRange(w.start), triaged: 'yes', who: 'community' }),
-                format: duration,
-              },
-            ]}
-          />
-        </Section>
-
-        <Section title="Issues">
+        <Section title="Open and closed issues">
           <IssueTotals weeks={o.series} />
+        </Section>
+      </Group>
+
+      <div className="ov-pair">
+        <Group title="Review">
+          <Section title="Time to first review" more={[to({ ...ALL, type: 'pr', created: since, firstReview: 'yes' }), `${o.review.reviewed} reviewed`]}>
+            <div className="ov-stats">
+              <Stat href={to({ ...ALL, type: 'pr', created: since, firstReview: 'yes' })} value={duration(o.review.median)} label="Median" />
+              <Stat href={to({ ...ALL, type: 'pr', created: since, firstReview: 'yes' })} value={duration(o.review.p90)} label="p90" />
+              <Stat href={to({ ...WAITING, created: since, sort: 'created' })} value={o.review.waiting} label="Still waiting" />
+            </div>
+            <WeekChart
+              title="Median per week (by PR opened)"
+              weeks={o.series}
+              series={[
+                {
+                  label: 'Median',
+                  className: 'ov-s1',
+                  value: (w) => w.reviewMedian,
+                  href: (w) => to({ ...ALL, type: 'pr', created: weekRange(w.start), firstReview: 'yes' }),
+                  format: duration,
+                },
+              ]}
+            />
+          </Section>
+
+          <Section title="Oldest PRs without review" more={[to({ ...WAITING, sort: 'created' }), `All ${o.totals.waiting}`]}>
+            <ItemList items={o.unreviewed} link={(i) => to({ ...WAITING, sort: 'created', item: i.id })} date={(i) => i.createdAt} />
+          </Section>
+        </Group>
+
+        <Group title="Triage">
+          <Section title="Time to triage" more={[to({ ...ALL, type: 'issue', created: since, triaged: 'yes', who: 'community' }), `${o.triage.triaged} triaged`]}>
+            <div className="ov-stats">
+              <Stat href={to({ ...ALL, type: 'issue', created: since, triaged: 'yes', who: 'community' })} value={duration(o.triage.median)} label="Median" />
+              <Stat href={to({ ...ALL, type: 'issue', created: since, triaged: 'yes', who: 'community' })} value={duration(o.triage.p90)} label="p90" />
+              <Stat href={to({ ...UNTRIAGED, created: since, sort: 'created' })} value={o.triage.waiting} label="Still untriaged" />
+            </div>
+            <WeekChart
+              title="Median per week (by issue opened, excluding member-opened)"
+              weeks={o.series}
+              series={[
+                {
+                  label: 'Median',
+                  className: 'ov-s1',
+                  value: (w) => w.triageMedian,
+                  href: (w) => to({ ...ALL, type: 'issue', created: weekRange(w.start), triaged: 'yes', who: 'community' }),
+                  format: duration,
+                },
+              ]}
+            />
+          </Section>
+
+          <Section title="Oldest untriaged issues" more={[to({ ...UNTRIAGED, sort: 'created' }), `All ${o.totals.untriaged}`]}>
+            <ItemList items={o.untriaged} link={(i) => to({ ...UNTRIAGED, sort: 'created', item: i.id })} date={(i) => i.createdAt} />
+          </Section>
+        </Group>
+      </div>
+
+      <Group title="Repositories">
+        <Section title="Waiting per repository">
+          {o.attention.length ? (
+            <ul className="ov-top ov-waiting">
+              <li className="muted" aria-hidden="true">
+                <span>Repository</span>
+                <span>Untriaged</span>
+                <span>Unreviewed</span>
+              </li>
+              {o.attention.map((r) => (
+                <li key={r.repo}>
+                  <a href={to({ repo: r.repo })} title={r.repo}>
+                    {r.repo}
+                  </a>
+                  {r.untriaged ? (
+                    <a href={to({ ...UNTRIAGED, repo: r.repo, sort: 'created' })} aria-label={`${r.repo}: ${r.untriaged} untriaged issues`}>
+                      {r.untriaged}
+                    </a>
+                  ) : (
+                    <span className="muted">0</span>
+                  )}
+                  {r.unreviewed ? (
+                    <a href={to({ ...WAITING, repo: r.repo, sort: 'created' })} aria-label={`${r.repo}: ${r.unreviewed} unreviewed PRs`}>
+                      {r.unreviewed}
+                    </a>
+                  ) : (
+                    <span className="muted">0</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted">Nothing waiting for triage or review.</p>
+          )}
         </Section>
 
         <Section title="Open items per repository">
@@ -303,7 +362,9 @@ export function Overview({ items, search }: { items: Item[]; search: string }) {
           <ul className="ov-repos">
             {o.repos.map((r) => (
               <li key={r.repo}>
-                <a href={to({ repo: r.repo })}>{r.repo}</a>
+                <a href={to({ repo: r.repo })} title={r.repo}>
+                  {r.repo}
+                </a>
                 <span className="ov-track">
                   {r.issues > 0 && (
                     <a className="ov-s1" href={to({ repo: r.repo, type: 'issue' })} style={{ width: `${(r.issues / maxRepo) * 100}%` }} title={`${r.issues} open issues`} aria-label={`${r.repo}: ${r.issues} open issues`} />
@@ -321,14 +382,9 @@ export function Overview({ items, search }: { items: Item[]; search: string }) {
         <Section title="Most stale open items" more={[to({ staleFor: 30, sort: 'updated' }), 'All stale']}>
           <ItemList items={o.stale} link={(i) => to({ sort: 'updated', item: i.id })} date={(i) => i.updatedAt} />
         </Section>
-        <Section title="Oldest PRs without review" more={[to({ ...WAITING, sort: 'created' }), `All ${o.totals.waiting}`]}>
-          <ItemList items={o.unreviewed} link={(i) => to({ ...WAITING, sort: 'created', item: i.id })} date={(i) => i.createdAt} />
-        </Section>
+      </Group>
 
-        <Section title="Oldest untriaged issues" more={[to({ ...UNTRIAGED, sort: 'created' }), `All ${o.totals.untriaged}`]}>
-          <ItemList items={o.untriaged} link={(i) => to({ ...UNTRIAGED, sort: 'created', item: i.id })} date={(i) => i.createdAt} />
-        </Section>
-
+      <Group title="People">
         <Section title="Top contributors">
           {o.topContributors.length ? (
             <ul className="ov-top">
@@ -361,7 +417,7 @@ export function Overview({ items, search }: { items: Item[]; search: string }) {
           )}
         </Section>
 
-        <Section title={`New contributors (${o.newContributors.length})`} wide>
+        <Section title={`New contributors (${o.newContributors.length})`}>
           {o.newContributors.length ? (
             <ul className="ov-people">
               {o.newContributors.map((c) => (
@@ -372,7 +428,7 @@ export function Overview({ items, search }: { items: Item[]; search: string }) {
                   </span>
                   <span className="count" title="Items in total">{c.count}</span>
                   <a href={to({ ...ALL, author: c.author, item: c.first.id })} title={c.first.title}>
-                    <StateIcon item={c.first} /> {c.first.repo}#{c.first.number} {c.first.title}
+                    <StateIcon item={c.first} /> {itemRef(c.first)} {c.first.title}
                   </a>
                   <Time iso={c.first.createdAt} />
                 </li>
@@ -382,7 +438,8 @@ export function Overview({ items, search }: { items: Item[]; search: string }) {
             <p className="muted">No new contributors in this range.</p>
           )}
         </Section>
-      </div>
+      </Group>
+
       <p className="muted">Weeks start Monday (UTC). Stale means no update for 30 days. Drafts do not count as waiting for review.</p>
     </div>
   )

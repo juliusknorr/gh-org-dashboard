@@ -2,11 +2,11 @@ import { readFile } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { extname, join, normalize, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { ItemsResponse, LaunchRequest } from '../shared/types.ts'
-import { allItems } from './db.ts'
+import type { ItemsResponse, LaunchRequest, SavedView } from '../shared/types.ts'
+import { allItems, getMeta, setMeta } from './db.ts'
 import { fetchDetails, fetchRepoOptions, parseAction, renderMarkdown, runAction } from './items.ts'
 import { launch } from './launch.ts'
-import { HttpError, ORG, getSyncStatus, isOrgMember, startSync } from './sync.ts'
+import { HttpError, getSyncStatus, isOrgMember, presetRepos, startSync } from './sync.ts'
 
 const PORT = Number(process.env.PORT ?? 3001)
 const SYNC_INTERVAL_MS = 5 * 60 * 1000
@@ -41,6 +41,19 @@ function sendJson(res: ServerResponse, body: unknown, statusCode = 200): void {
 }
 
 const MAX_BODY_BYTES = 256 * 1024
+const MAX_VIEWS = 100
+
+const isShortText = (v: unknown, max: number) => typeof v === 'string' && v.length <= max
+
+function parseViews(body: unknown): SavedView[] {
+  if (!Array.isArray(body) || body.length > MAX_VIEWS) throw new HttpError(400, `Body must be an array of at most ${MAX_VIEWS} views`)
+  return body.map((v) => {
+    if (!v || !isShortText(v.name, 100) || !v.name.trim() || !isShortText(v.search, 2000) || !(v.preset === null || isShortText(v.preset, 100))) {
+      throw new HttpError(400, 'Each view needs a name, a search string and a preset or null')
+    }
+    return { name: v.name.trim(), search: v.search, preset: v.preset }
+  })
+}
 const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1'])
 
 const isLocal = (value: string | undefined) => {
@@ -92,19 +105,26 @@ createServer(async (req, res) => {
   const { pathname } = new URL(req.url ?? '/', 'http://localhost')
   const itemRoute = pathname.match(/^\/api\/items\/([\w=-]{1,100})(\/actions)?$/)
   const optionsRoute = pathname.match(/^\/api\/repos\/([^/]+)\/options$/)
+  const optionsRepo = optionsRoute && decodeURIComponent(optionsRoute[1])
   try {
     if (pathname.startsWith('/api/')) {
       if (!isLocal(req.headers.host) || (req.method === 'POST' && !isTrustedPost(req))) return sendJson(res, { error: 'Forbidden' }, 403)
     }
     if (pathname === '/api/items' && req.method === 'GET') {
-      const items = allItems().map((i) => ({ ...i, member: isOrgMember(i.author) }))
-      const body: ItemsResponse = { org: ORG, items, sync: getSyncStatus() }
+      const items = allItems().map((i) => ({ ...i, member: isOrgMember(i.repo, i.author) }))
+      const body: ItemsResponse = { presets: presetRepos(), items, sync: getSyncStatus() }
       return sendJson(res, body)
     }
     if (itemRoute && !itemRoute[2] && req.method === 'GET') return sendJson(res, await fetchDetails(itemRoute[1]))
     if (itemRoute?.[2] && req.method === 'POST') return sendJson(res, await runAction(itemRoute[1], parseAction(await readJson(req))))
-    if (optionsRoute && req.method === 'GET') return sendJson(res, await fetchRepoOptions(optionsRoute[1]))
+    if (optionsRepo && req.method === 'GET') return sendJson(res, await fetchRepoOptions(optionsRepo))
     if (pathname === '/api/markdown' && req.method === 'POST') return sendJson(res, await renderMarkdown(await readJson(req)))
+    if (pathname === '/api/views' && req.method === 'GET') return sendJson(res, JSON.parse(getMeta('views') ?? '[]'))
+    if (pathname === '/api/views' && req.method === 'POST') {
+      const views = parseViews(await readJson(req))
+      setMeta('views', JSON.stringify(views))
+      return sendJson(res, views)
+    }
     if (pathname === '/api/sync' && req.method === 'GET') return sendJson(res, getSyncStatus())
     if (pathname === '/api/sync' && req.method === 'POST') return sendJson(res, startSync())
     if (pathname === '/api/launch' && req.method === 'POST') {

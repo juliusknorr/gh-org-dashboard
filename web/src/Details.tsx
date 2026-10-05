@@ -20,7 +20,7 @@ import {
   XIcon,
   type Icon,
 } from '@primer/octicons-react'
-import { CiIcon, ReviewIcon, StateIcon, Time, textColor } from './format.tsx'
+import { CiIcon, ReviewIcon, StateIcon, Time, itemRef, textColor } from './format.tsx'
 import { Picker, type PickerOption } from './Picker.tsx'
 
 const WIDTH_KEY = 'details-width'
@@ -89,7 +89,7 @@ function HtmlFrame({ html, title }: { html: string; title: string }) {
   )
 }
 
-const typeLabel = (i: Item) => (i.type === 'pr' ? (i.draft ? 'Draft PR' : 'PR') : 'Issue')
+const typeLabel = (i: Item) => (i.type === 'pr' ? (i.draft ? 'Draft PR' : 'PR') : i.type === 'advisory' ? 'Security advisory' : 'Issue')
 
 const latestReviews = (reviews: Review[]) =>
   [...new Map(reviews.toSorted((a, b) => (a.submittedAt ?? '').localeCompare(b.submittedAt ?? '')).map((r) => [r.author, r])).values()]
@@ -453,7 +453,7 @@ export function Details({ id, listItem, onItem, onClose }: { id: string; listIte
           {item && <StateIcon item={item} />}
           {item && (
             <span className="muted">
-              {typeLabel(item)} · {item.repo}#{item.number}
+              {typeLabel(item)} · {itemRef(item)}
             </span>
           )}
           <span className="hint" title={SHORTCUTS} aria-label={SHORTCUTS} role="img">
@@ -484,7 +484,16 @@ export function Details({ id, listItem, onItem, onClose }: { id: string; listIte
           </p>
         )}
         {pr && <PrSummary pr={pr} />}
-        {item && (
+        {item?.type === 'advisory' && (
+          <p className="row">
+            {item.labels.map((l) => (
+              <span key={l.name} className="chip" style={{ background: `#${l.color}`, color: textColor(l.color) }}>
+                {l.name}
+              </span>
+            ))}
+          </p>
+        )}
+        {item && item.type !== 'advisory' && (
           <dl className="meta">
             <Picker
               icon={TagIcon}
@@ -550,7 +559,7 @@ export function Details({ id, listItem, onItem, onClose }: { id: string; listIte
         {!details && !error && <p className="muted">Loading details…</p>}
         {details && (pr && tab === 'checks' ? <Checks pr={pr} /> : <Conversation details={details} />)}
       </div>
-      {details && <Footer details={details} run={run} />}
+      {details && item?.type !== 'advisory' && <Footer details={details} run={run} />}
     </aside>
   )
 }

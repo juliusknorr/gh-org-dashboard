@@ -21,25 +21,26 @@ async function submodulePaths(): Promise<Map<string, string>> {
   const entries = stdout.trim().split('\n').map((line) => {
     const [key, url] = line.split(' ')
     const path = key.replace(/^submodule\./, '').replace(/\.url$/, '')
-    return [url.replace(/\.git$/, '').split('/').at(-1)!, path] as const
+    return [url.replace(/\.git$/, '').split(/[/:]/).slice(-2).join('/').toLowerCase(), path] as const
   })
   return new Map(entries)
 }
 
-async function resolveCheckout({ repo, url }: Item): Promise<{ dir: string; prepare: () => Promise<void> }> {
-  const submodule = (await submodulePaths()).get(repo)
+async function resolveCheckout({ repo }: Item): Promise<{ dir: string; prepare: () => Promise<void> }> {
+  const name = repo.split('/')[1]
+  const submodule = (await submodulePaths()).get(repo.toLowerCase())
   if (submodule) {
     const superDir = join(REPOS_DIR, SUPERPROJECT)
     const dir = join(superDir, submodule)
     const initialized = existsSync(dir) && readdirSync(dir).length > 0
     return { dir, prepare: async () => void (initialized || (await run('git', ['-C', superDir, 'submodule', 'update', '--init', submodule]))) }
   }
-  const dir = join(REPOS_DIR, repo)
-  return { dir, prepare: async () => void (existsSync(dir) || (await run('gh', ['repo', 'clone', new URL(url).pathname.split('/').slice(1, 3).join('/'), dir]))) }
+  const dir = join(REPOS_DIR, name)
+  return { dir, prepare: async () => void (existsSync(dir) || (await run('gh', ['repo', 'clone', repo, dir]))) }
 }
 
 function claudeCommand(item: Item, { prompt, worktree, remoteControl }: LaunchRequest, dir: string) {
-  const name = `${item.type === 'pr' ? 'pr' : 'issue'}-${item.repo}-${item.number}`.replace(/[^\w.-]/g, '-')
+  const name = `${item.type}-${item.repo}-${item.type === 'advisory' ? item.id : item.number}`.replace(/[^\w.-]/g, '-')
   const args = ['claude', '-n', name]
   if (worktree) args.push('-w', name)
   if (remoteControl) args.push('--remote-control', name)

@@ -3,7 +3,7 @@ import { MarkGithubIcon } from '@primer/octicons-react'
 import type { Item } from '../../shared/types.ts'
 import { DAY, RANGES, isoDate } from './overview.ts'
 import { STALE_DAYS, members, rangeStart, summary, team, type Metric, type Summary, type Team as TeamData } from './team.ts'
-import { StateIcon, Time } from './format.tsx'
+import { StateIcon, Time, itemRef } from './format.tsx'
 
 const HOUR = 3_600_000
 const duration = (ms: number) => (ms < 2 * DAY ? `${Math.round(ms / HOUR)}h` : `${Math.round(ms / DAY)}d`)
@@ -116,7 +116,7 @@ function ItemList({ title, items, more, date }: { title: string; items: Item[]; 
               <StateIcon item={i} />
               <a href={`/?item=${encodeURIComponent(i.id)}`} title={i.title}>
                 <span className="muted">
-                  {i.repo}#{i.number}
+                  {itemRef(i)}
                 </span>{' '}
                 {i.title}
               </a>

@@ -1,7 +1,7 @@
 import type { Item, ItemState } from '../../shared/types.ts'
 
 export interface Filters {
-  type: '' | 'issue' | 'pr'
+  type: '' | 'issue' | 'pr' | 'advisory'
   state: ItemState[]
   repo: string[]
   author: string

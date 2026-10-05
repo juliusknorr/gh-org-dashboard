@@ -1,7 +1,7 @@
 import { mergeBlockers } from '../shared/merge.ts'
 import type { Check, ItemAction, ItemDetails, MergeMethod, PrDetails, RepoOptions, Review } from '../shared/types.ts'
-import { deleteItem, upsertItems } from './db.ts'
-import { COMMON_FIELDS, HttpError, ISSUE_FIELDS, ORG, PR_FIELDS, ensureOrgMembers, graphql, rest, toItem, type RawNode } from './sync.ts'
+import { allItems, deleteItem, upsertItems } from './db.ts'
+import { COMMON_FIELDS, HttpError, ISSUE_FIELDS, PR_FIELDS, advisoryItem, ensureOrgMembers, graphql, isAdvisoryId, isSyncedRepo, rest, toItem, type RawNode } from './sync.ts'
 
 const MAX_COMMENT_LENGTH = 65536
 const MAX_REF_LENGTH = 200
@@ -12,11 +12,11 @@ const MAX_LIST_ENTRIES = 50
 const OPTIONS_TTL_MS = 10 * 60 * 1000
 const LOGIN = /^[A-Za-z0-9-]{1,39}$/
 const REVIEWER = /^(?:team:[\w.-]{1,100}|[A-Za-z0-9-]{1,39})$/
-export const REPO_NAME = /^[\w.-]{1,100}$/
+export const REPO_NAME = /^[\w.-]{1,39}\/[\w.-]{1,100}$/
 
 const DETAIL_FIELDS = `
   bodyHTML viewerCanClose
-  repository { name owner { login } }
+  repository { nameWithOwner }
   recentComments: comments(last: 50) { nodes { author { login } createdAt bodyHTML url } }`
 
 const PR_DETAIL_FIELDS = `
@@ -41,7 +41,7 @@ type CheckContext =
 type DetailNode = RawNode & {
   bodyHTML: string
   viewerCanClose: boolean
-  repository: { name: string; owner: { login: string } }
+  repository: { nameWithOwner: string }
   recentComments: { nodes: { author: { login: string } | null; createdAt: string; bodyHTML: string; url: string }[] }
 }
 
@@ -86,8 +86,33 @@ function toPrDetails(node: PrNode): PrDetails {
   }
 }
 
+async function fetchAdvisoryDetails(id: string): Promise<ItemDetails> {
+  const known = allItems().find((i) => i.id === id)
+  if (!known) throw new HttpError(404, 'Item not found')
+  const advisory = await rest('GET', `/repos/${known.repo}/security-advisories/${id}`, undefined).catch((err) => {
+    if (err instanceof HttpError && err.status === 404) {
+      deleteItem(id)
+      throw new HttpError(404, 'Advisory not found, removed it from the dashboard')
+    }
+    throw err
+  })
+  const raw = JSON.parse(advisory)
+  const item = advisoryItem(raw)
+  upsertItems([item])
+  const text: string = raw.description?.trim() || '_No description._'
+  return {
+    item,
+    bodyHTML: await rest('POST', '/markdown', { text, mode: 'gfm', context: item.repo }),
+    comments: [],
+    totalComments: item.comments,
+    viewerCanClose: false,
+    pr: null,
+  }
+}
+
 export async function fetchDetails(id: string): Promise<ItemDetails> {
   await ensureOrgMembers()
+  if (isAdvisoryId(id)) return fetchAdvisoryDetails(id)
   const node = await graphql<{ node: DetailNode | null }>(DETAILS_QUERY, { id }).then(
     (data) => data.node,
     (err) => {
@@ -95,11 +120,11 @@ export async function fetchDetails(id: string): Promise<ItemDetails> {
       throw err
     },
   )
-  if (!node?.repository || node.repository.owner.login.toLowerCase() !== ORG.toLowerCase()) {
+  if (!node?.repository || !isSyncedRepo(node.repository.nameWithOwner)) {
     deleteItem(id)
     throw new HttpError(404, 'Item not found, removed it from the dashboard')
   }
-  const item = toItem(node.repository.name, node)
+  const item = toItem(node.repository.nameWithOwner, node)
   upsertItems([item])
   return {
     item,
@@ -111,11 +136,12 @@ export async function fetchDetails(id: string): Promise<ItemDetails> {
   }
 }
 
-function parseIssueRef(ref: string): { repo: string | null; number: number } | null {
-  const short = ref.trim().match(/^([\w.-]+)?#(\d+)$/)
-  if (short) return { repo: short[1] ?? null, number: Number(short[2]) }
+export function parseIssueRef(ref: string, currentRepo: string): { owner: string; name: string; number: number } | null {
+  const [currentOwner, currentName] = currentRepo.split('/')
+  const short = ref.trim().match(/^(?:(?:([\w.-]+)\/)?([\w.-]+))?#(\d+)$/)
+  if (short) return { owner: short[1] ?? currentOwner, name: short[2] ?? currentName, number: Number(short[3]) }
   const url = ref.trim().match(/^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/issues\/(\d+)\/?(?:[?#].*)?$/i)
-  if (url && url[1].toLowerCase() === ORG.toLowerCase()) return { repo: url[2], number: Number(url[3]) }
+  if (url) return { owner: url[1], name: url[2], number: Number(url[3]) }
   return null
 }
 
@@ -136,8 +162,8 @@ export function parseAction(body: unknown): ItemAction {
       if (!CLOSE_REASONS.includes(a.reason as string)) throw new HttpError(400, `reason must be one of ${CLOSE_REASONS.join(', ')}`)
       return { type: 'close', reason: a.reason as 'COMPLETED' | 'NOT_PLANNED', comment }
     case 'duplicate':
-      if (typeof a.of !== 'string' || a.of.length > MAX_REF_LENGTH || !parseIssueRef(a.of)) {
-        throw new HttpError(400, `of must be '#123', 'repo#123' or a https://github.com/${ORG}/<repo>/issues/<number> URL`)
+      if (typeof a.of !== 'string' || a.of.length > MAX_REF_LENGTH || !parseIssueRef(a.of, 'owner/repo')) {
+        throw new HttpError(400, `of must be '#123', 'repo#123', 'owner/repo#123' or a https://github.com/<owner>/<repo>/issues/<number> URL`)
       }
       return { type: 'duplicate', of: a.of, comment }
     case 'merge':
@@ -184,10 +210,10 @@ async function closeIssue(issueId: string, stateReason: string, duplicateIssueId
 }
 
 async function resolveIssueId(ref: string, currentRepo: string): Promise<string> {
-  const { repo, number } = parseIssueRef(ref)!
+  const { owner, name, number } = parseIssueRef(ref, currentRepo)!
   const data = await graphql<{ repository: { issue: { id: string } | null } | null }>(
-    `query($org: String!, $repo: String!, $number: Int!) { repository(owner: $org, name: $repo) { issue(number: $number) { id } } }`,
-    { org: ORG, repo: repo ?? currentRepo, number },
+    `query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { issue(number: $number) { id } } }`,
+    { owner, name, number },
   )
   const id = data.repository?.issue?.id
   if (!id) throw new HttpError(400, `Issue ${ref} not found`)
@@ -217,23 +243,27 @@ type Options = {
 }
 
 async function loadOptions(repo: string): Promise<Options> {
-  const vars = { org: ORG, repo }
+  const [owner, name] = repo.split('/')
+  const vars = { owner, name }
   const [labels, users, teams] = await Promise.all([
     paginate<Options['labels'][number]>(
-      `query($org: String!, $repo: String!, $cursor: String) { repository(owner: $org, name: $repo) { labels(first: 100, after: $cursor) { ${PAGE} nodes { id name color description } } } }`,
+      `query($owner: String!, $name: String!, $cursor: String) { repository(owner: $owner, name: $name) { labels(first: 100, after: $cursor) { ${PAGE} nodes { id name color description } } } }`,
       vars,
       (d) => d.repository?.labels,
     ),
     paginate<Options['users'][number]>(
-      `query($org: String!, $repo: String!, $cursor: String) { repository(owner: $org, name: $repo) { assignableUsers(first: 100, after: $cursor) { ${PAGE} nodes { id login } } } }`,
+      `query($owner: String!, $name: String!, $cursor: String) { repository(owner: $owner, name: $name) { assignableUsers(first: 100, after: $cursor) { ${PAGE} nodes { id login } } } }`,
       vars,
       (d) => d.repository?.assignableUsers,
     ),
     paginate<Options['teams'][number]>(
       `query($org: String!, $cursor: String) { organization(login: $org) { teams(first: 100, after: $cursor) { ${PAGE} nodes { id slug } } } }`,
-      { org: ORG },
+      { org: owner },
       (d) => d.organization?.teams,
-    ),
+    ).catch((err) => {
+      if (err instanceof HttpError && err.status === 404) return []
+      throw err
+    }),
   ])
   return { labels, users, teams }
 }
@@ -268,12 +298,12 @@ async function userId(login: string, options: Options): Promise<string> {
   return data.user.id
 }
 
-async function teamId(slug: string, options: Options): Promise<string> {
+async function teamId(slug: string, repo: string, options: Options): Promise<string> {
   const known = options.teams.find((t) => t.slug.toLowerCase() === slug.toLowerCase())
   if (known) return known.id
   const data = await graphql<{ organization: { team: { id: string } | null } | null }>(
     `query($org: String!, $slug: String!) { organization(login: $org) { team(slug: $slug) { id } } }`,
-    { org: ORG, slug },
+    { org: repo.split('/')[0], slug },
   )
   if (!data.organization?.team) throw new HttpError(400, `Unknown team ${slug}`)
   return data.organization.team.id
@@ -288,6 +318,7 @@ function labelIds(names: string[], options: Options): string[] {
 }
 
 export async function runAction(id: string, action: ItemAction): Promise<ItemDetails> {
+  if (isAdvisoryId(id)) throw new HttpError(400, 'Security advisories can only be changed on GitHub')
   const details = await fetchDetails(id)
   const { item, pr } = details
   switch (action.type) {
@@ -349,14 +380,14 @@ export async function runAction(id: string, action: ItemAction): Promise<ItemDet
       if (add.length) {
         const options = await repoOptions(item.repo)
         const userIds = await Promise.all(add.filter((r) => !isTeam(r)).map((l) => userId(l, options)))
-        const teamIds = await Promise.all(add.filter(isTeam).map((t) => teamId(slug(t), options)))
+        const teamIds = await Promise.all(add.filter(isTeam).map((t) => teamId(slug(t), item.repo, options)))
         await mutate(
           `mutation($id: ID!, $userIds: [ID!], $teamIds: [ID!]) { requestReviews(input: { pullRequestId: $id, userIds: $userIds, teamIds: $teamIds, union: true }) { clientMutationId } }`,
           { id, userIds, teamIds },
         )
       }
       if (remove.length) {
-        await rest('DELETE', `/repos/${ORG}/${item.repo}/pulls/${item.number}/requested_reviewers`, {
+        await rest('DELETE', `/repos/${item.repo}/pulls/${item.number}/requested_reviewers`, {
           reviewers: remove.filter((r) => !isTeam(r)),
           team_reviewers: remove.filter(isTeam).map(slug),
         })
@@ -371,5 +402,5 @@ export async function renderMarkdown(body: unknown): Promise<{ html: string }> {
   const { text, repo } = (body ?? {}) as Record<string, unknown>
   if (typeof text !== 'string' || text.length > MAX_COMMENT_LENGTH) throw new HttpError(400, `text must be a string of at most ${MAX_COMMENT_LENGTH} characters`)
   if (typeof repo !== 'string' || !REPO_NAME.test(repo)) throw new HttpError(400, 'Invalid repository name')
-  return { html: await rest('POST', '/markdown', { text, mode: 'gfm', context: `${ORG}/${repo}` }) }
+  return { html: await rest('POST', '/markdown', { text, mode: 'gfm', context: repo }) }
 }

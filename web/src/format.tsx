@@ -9,6 +9,8 @@ import {
   GitPullRequestIcon,
   IssueClosedIcon,
   IssueOpenedIcon,
+  ShieldIcon,
+  ShieldCheckIcon,
   XIcon,
   VerifiedIcon,
   type Icon,
@@ -47,7 +49,10 @@ const Labeled = ({ icon: Glyph, label, className }: { icon: Icon; label: string;
   </span>
 )
 
+export const itemRef = (i: Item) => (i.type === 'advisory' ? `${i.repo} ${i.id}` : `${i.repo}#${i.number}`)
+
 function stateIcon({ type, state, draft }: Item): [Icon, string, string] {
+  if (type === 'advisory') return state === 'open' ? [ShieldIcon, 'Open security advisory', 'state-closed'] : [ShieldCheckIcon, 'Closed security advisory', 'state-merged']
   if (type === 'issue') return state === 'open' ? [IssueOpenedIcon, 'Open issue', 'state-open'] : [IssueClosedIcon, 'Closed issue', 'state-merged']
   if (state === 'merged') return [GitMergeIcon, 'Merged pull request', 'state-merged']
   if (state === 'closed') return [GitPullRequestClosedIcon, 'Closed pull request', 'state-closed']

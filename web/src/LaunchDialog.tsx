@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { CopyIcon, TerminalIcon } from '@primer/octicons-react'
 import type { Item, LaunchRequest, LaunchResponse } from '../../shared/types.ts'
+import { itemRef } from './format.tsx'
 
 type Preset = { id: string; label: string; for: Item['type'][]; prompt: (item: Item) => string }
 
@@ -13,7 +14,14 @@ const PRESETS: Preset[] = [
     prompt: (i) =>
       `Work on GitHub issue ${i.url}. Read the issue and its comments with gh, ask me when the scope is unclear, and propose a plan before changing code.`,
   },
-  { id: 'free', label: 'Free prompt', for: ['issue', 'pr'], prompt: (i) => i.url },
+  {
+    id: 'advisory',
+    label: 'Investigate advisory',
+    for: ['advisory'],
+    prompt: (i) =>
+      `Investigate security advisory ${i.url}. Read it with gh api, locate the affected code, assess the impact and propose a fix. Do not push, comment or publish anything.`,
+  },
+  { id: 'free', label: 'Free prompt', for: ['issue', 'pr', 'advisory'], prompt: (i) => i.url },
 ]
 
 async function postLaunch(body: LaunchRequest): Promise<LaunchResponse> {
@@ -57,7 +65,7 @@ export function LaunchDialog({ item, onClose }: { item: Item; onClose: () => voi
       <form method="dialog" onSubmit={(e) => (e.preventDefault(), submit(false))}>
         <h2>Launch Claude Code</h2>
         <p className="muted">
-          {item.repo}#{item.number} {item.title}
+          {itemRef(item)} {item.title}
         </p>
         <fieldset className="presets">
           <legend>Action</legend>

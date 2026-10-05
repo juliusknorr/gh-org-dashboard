@@ -214,7 +214,16 @@ button.icon-button:hover { color: var(--fg); border-color: var(--border); backgr
 .picker fieldset { border: 0; margin: 0; padding: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 0.15rem; }
 .picker p { margin: 0; }
 .dot { flex: none; width: 10px; height: 10px; border-radius: 50%; }
-.hint { color: var(--muted); cursor: help; padding: 2px 4px; }
+.hint { color: var(--muted); padding: 2px 4px; }
+kbd { display: inline-block; min-width: 1.4em; padding: 0 0.3em; font: 12px/1.5 ui-monospace, monospace; text-align: center; background: var(--bg-alt); border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; color: var(--fg); }
+.keys { display: inline-flex; gap: 0.2rem; }
+dialog.shortcuts { width: min(420px, calc(100vw - 32px)); }
+dialog.shortcuts h3 { margin: 0 0 0.3rem; font-size: 0.9rem; color: var(--muted); }
+dialog.shortcuts dl { display: grid; grid-template-columns: 5rem 1fr; gap: 0.3rem 1rem; margin: 0; }
+dialog.shortcuts dl > div { display: contents; }
+dialog.shortcuts dd { margin: 0; }
+.shortcut-hints { position: sticky; bottom: 12px; left: 12px; z-index: 4; display: flex; gap: 0.8rem; width: fit-content; margin: 0 12px; white-space: nowrap; padding: 0.35rem 0.8rem; font-size: 12px; color: var(--muted); background: var(--bg); border: 1px solid var(--border); border-radius: 999px; box-shadow: 0 4px 16px rgb(0 0 0 / 0.15); }
+.shortcut-hints button.link { font-size: inherit; color: var(--accent); }
 .meta dt button.icon-button { margin-left: auto; padding: 0 2px; }
 
 /* overview */

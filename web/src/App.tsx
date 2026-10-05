@@ -26,6 +26,7 @@ import { LaunchDialog } from './LaunchDialog.tsx'
 import { Details } from './Details.tsx'
 import { Overview } from './Overview.tsx'
 import { Settings } from './Settings.tsx'
+import { ShortcutHints, ShortcutsDialog } from './Shortcuts.tsx'
 import { Team } from './Team.tsx'
 import { CommentIcon, DotFillIcon, DotIcon, IssueOpenedIcon, SidebarCollapseIcon, SidebarExpandIcon, SyncIcon, TerminalIcon, XIcon } from '@primer/octicons-react'
 import { AuthorBadge, CiIcon, ReviewIcon, StateIcon, Time, textColor } from './format.tsx'
@@ -473,6 +474,8 @@ function Items({ data, error, sync, replaceItem, setRead, preset, setPreset }: D
   })
 
   const [launchItem, setLaunchItem] = useState<Item | null>(null)
+  const [helpOpen, setHelpOpen] = useState(false)
+  const openHelp = useCallback(() => setHelpOpen(true), [])
   const unreadIds = useMemo(() => filtered.filter(isUnread).map((i) => i.id), [filtered])
 
   const toggleRead = (id: string) => {
@@ -504,6 +507,7 @@ function Items({ data, error, sync, replaceItem, setRead, preset, setPreset }: D
       if (e.ctrlKey || e.metaKey || e.altKey || document.querySelector('dialog[open], :popover-open')) return
       if (e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable]')) return
       if (e.key === 'Escape' && filters.item) return closeDetails()
+      if (e.key === '?') return setHelpOpen(true)
       if (filters.item && e.key === 'l') {
         const item = items.find((i) => i.id === filters.item)
         return item && setLaunchItem(item)
@@ -595,10 +599,12 @@ function Items({ data, error, sync, replaceItem, setRead, preset, setPreset }: D
           </tbody>
         </table>
         {data && !rows.length && <p className="empty">No items match these filters.</p>}
+        <ShortcutHints context={filters.item ? 'item' : 'list'} onHelp={openHelp} />
       </main>
       {filters.item && (
-        <Details key={filters.item} id={filters.item} listItem={items.find((i) => i.id === filters.item)} onItem={replaceItem} onClose={closeDetails} />
+        <Details key={filters.item} id={filters.item} listItem={items.find((i) => i.id === filters.item)} onItem={replaceItem} onClose={closeDetails} onHelp={openHelp} />
       )}
+      {helpOpen && <ShortcutsDialog onClose={() => setHelpOpen(false)} />}
       {launchItem && data && <LaunchDialog key={launchItem.id} item={launchItem} settings={data.settings} onClose={() => setLaunchItem(null)} />}
     </div>
   )

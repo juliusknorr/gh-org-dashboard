@@ -27,8 +27,6 @@ const WIDTH_KEY = 'details-width'
 const MIN_WIDTH = 360
 const DEFAULT_WIDTH = 480
 
-const SHORTCUTS = 'Shortcuts: j/k next/previous, o open on GitHub, c comment, l launch agent, a assignees, Shift+L labels, Esc close'
-
 const repoOptions = new Map<string, Promise<RepoOptions>>()
 function loadRepoOptions(repo: string): Promise<RepoOptions> {
   if (!repoOptions.has(repo)) {
@@ -420,7 +418,7 @@ function Footer({ details, run }: { details: ItemDetails; run: (a: ItemAction) =
   )
 }
 
-export function Details({ id, listItem, onItem, onClose }: { id: string; listItem?: Item; onItem: (item: Item) => void; onClose: () => void }) {
+export function Details({ id, listItem, onItem, onClose, onHelp }: { id: string; listItem?: Item; onItem: (item: Item) => void; onClose: () => void; onHelp: () => void }) {
   const [details, setDetails] = useState<ItemDetails | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [tab, setTab] = useState<'conversation' | 'checks'>('conversation')
@@ -456,9 +454,9 @@ export function Details({ id, listItem, onItem, onClose }: { id: string; listIte
               {typeLabel(item)} · {itemRef(item)}
             </span>
           )}
-          <span className="hint" title={SHORTCUTS} aria-label={SHORTCUTS} role="img">
+          <button type="button" className="icon-button hint" onClick={onHelp} aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)">
             <QuestionIcon />
-          </span>
+          </button>
           <button type="button" className="icon-button" onClick={onClose} aria-label="Close details" title="Close (Esc)">
             <XIcon />
           </button>

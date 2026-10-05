@@ -36,8 +36,21 @@ export interface SyncStatus {
   error: string | null
 }
 
+export const TERMINALS = ['iterm', 'cmux'] as const
+export const AGENTS = ['claude', 'custom'] as const
+
+export interface Settings {
+  terminal: (typeof TERMINALS)[number]
+  agent: (typeof AGENTS)[number]
+  agentCommand: string
+  reposDir: string
+  superproject: string
+  reviewPrompt: string
+}
+
 export interface ItemsResponse {
   presets: Record<string, string[]>
+  settings: Settings
   items: Item[]
   sync: SyncStatus
 }

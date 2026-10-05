@@ -1,10 +1,24 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { test } from 'node:test'
-import { shellQuote } from './launch.ts'
+import type { Item, LaunchRequest } from '../shared/types.ts'
+import { agentCommand, shellQuote } from './launch.ts'
 
 test('shellQuote survives a round trip through sh', () => {
   for (const s of [`it's "quoted"`, '$(rm -rf ~) `id` $HOME', 'multi\nline\\', '']) {
     assert.equal(execFileSync('sh', ['-c', `printf %s ${shellQuote(s)}`], { encoding: 'utf8' }), s)
   }
+})
+
+test('agentCommand passes the prompt verbatim to claude and custom agents', () => {
+  const item = { type: 'pr', repo: 'my-org/app', number: 7, id: 'x' } as Item
+  const prompt = `it's "$HOME" \`id\` $(whoami)`
+  const req: LaunchRequest = { id: 'x', prompt, worktree: true, remoteControl: false }
+  const argsOf = (agent: 'claude' | 'custom', template = '') => {
+    const { command } = agentCommand(item, req, '/tmp', { agent, agentCommand: template })
+    const printArgs = command.replace(/^cd \S+ && \w+/, 'printf "%s\\n"')
+    return execFileSync('sh', ['-c', printArgs], { encoding: 'utf8' }).trimEnd().split('\n')
+  }
+  assert.deepEqual(argsOf('claude'), ['-n', 'pr-my-org-app-7', '-w', 'pr-my-org-app-7', '--', prompt])
+  assert.deepEqual(argsOf('custom', 'codex --title {name} {prompt}'), ['--title', 'pr-my-org-app-7', prompt])
 })

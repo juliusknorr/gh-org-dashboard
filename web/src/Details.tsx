@@ -27,7 +27,7 @@ const WIDTH_KEY = 'details-width'
 const MIN_WIDTH = 360
 const DEFAULT_WIDTH = 480
 
-const SHORTCUTS = 'Shortcuts: j/k next/previous, o open on GitHub, c comment, l launch Claude, a assignees, Shift+L labels, Esc close'
+const SHORTCUTS = 'Shortcuts: j/k next/previous, o open on GitHub, c comment, l launch agent, a assignees, Shift+L labels, Esc close'
 
 const repoOptions = new Map<string, Promise<RepoOptions>>()
 function loadRepoOptions(repo: string): Promise<RepoOptions> {

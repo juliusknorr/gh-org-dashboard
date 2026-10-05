@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { CopyIcon, TerminalIcon } from '@primer/octicons-react'
-import type { Item, LaunchRequest, LaunchResponse } from '../../shared/types.ts'
+import type { Item, LaunchRequest, LaunchResponse, Settings } from '../../shared/types.ts'
 import { itemRef } from './format.tsx'
 
-type Preset = { id: string; label: string; for: Item['type'][]; prompt: (item: Item) => string }
+type Preset = { id: string; label: string; for: Item['type'][]; prompt: (item: Item, reviewPrompt: string) => string }
 
 const PRESETS: Preset[] = [
-  { id: 'review', label: 'Review PR', for: ['pr'], prompt: (i) => `/julius-review ${i.url}` },
+  { id: 'review', label: 'Review PR', for: ['pr'], prompt: (i, reviewPrompt) => reviewPrompt.replaceAll('{url}', i.url) },
   {
     id: 'work',
     label: 'Work on issue',
@@ -31,10 +31,12 @@ async function postLaunch(body: LaunchRequest): Promise<LaunchResponse> {
   return json
 }
 
-export function LaunchDialog({ item, onClose }: { item: Item; onClose: () => void }) {
+export function LaunchDialog({ item, settings, onClose }: { item: Item; settings: Settings; onClose: () => void }) {
+  const { reviewPrompt } = settings
+  const isClaude = settings.agent === 'claude'
   const presets = PRESETS.filter((p) => p.for.includes(item.type))
   const [presetId, setPresetId] = useState(presets[0].id)
-  const [prompt, setPrompt] = useState(() => presets[0].prompt(item))
+  const [prompt, setPrompt] = useState(() => presets[0].prompt(item, reviewPrompt))
   const [extra, setExtra] = useState('')
   const [worktree, setWorktree] = useState(true)
   const [remoteControl, setRemoteControl] = useState(false)
@@ -45,7 +47,7 @@ export function LaunchDialog({ item, onClose }: { item: Item; onClose: () => voi
 
   const choosePreset = (preset: Preset) => {
     setPresetId(preset.id)
-    setPrompt(preset.prompt(item))
+    setPrompt(preset.prompt(item, reviewPrompt))
   }
 
   const submit = async (dryRun: boolean) => {
@@ -63,7 +65,7 @@ export function LaunchDialog({ item, onClose }: { item: Item; onClose: () => voi
   return (
     <dialog ref={dialogRef} className="launch" onClose={onClose}>
       <form method="dialog" onSubmit={(e) => (e.preventDefault(), submit(false))}>
-        <h2>Launch Claude Code</h2>
+        <h2>Launch {isClaude ? 'Claude Code' : 'coding agent'}</h2>
         <p className="muted">
           {itemRef(item)} {item.title}
         </p>
@@ -84,14 +86,16 @@ export function LaunchDialog({ item, onClose }: { item: Item; onClose: () => voi
           Extra instructions
           <textarea rows={3} value={extra} onChange={(e) => setExtra(e.target.value)} placeholder="e.g. focus on the docker changes" autoFocus />
         </label>
-        <div className="options">
-          <label>
-            <input type="checkbox" checked={worktree} onChange={(e) => setWorktree(e.target.checked)} /> Separate worktree
-          </label>
-          <label>
-            <input type="checkbox" checked={remoteControl} onChange={(e) => setRemoteControl(e.target.checked)} /> Remote Control
-          </label>
-        </div>
+        {isClaude && (
+          <div className="options">
+            <label>
+              <input type="checkbox" checked={worktree} onChange={(e) => setWorktree(e.target.checked)} /> Separate worktree
+            </label>
+            <label>
+              <input type="checkbox" checked={remoteControl} onChange={(e) => setRemoteControl(e.target.checked)} /> Remote Control
+            </label>
+          </div>
+        )}
         {status.message && <p role="status">{status.message}</p>}
         {status.error && <p className="error" role="alert">{status.error}</p>}
         <div className="actions">

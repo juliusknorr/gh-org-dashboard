@@ -24,32 +24,32 @@ npm run app:install  # builds and installs it to /Applications
 The build downloads the official Node binary matching your `node -v` and bundles it with the server.
 The app keeps its database, `presets.json`, `.env` and `server.log` in `~/Library/Application Support/local.gh-org-dashboard/`.
 It uses `gh`, `git` and `claude` from your login shell's PATH.
-`app:install` seeds a new app data folder from `data/dashboard.db` and `presets.json`.
+`app:install` seeds a new app data folder from `data/dashboard.db` and `presets.json` when they exist.
 
 ## Configuration
 
-Teams are defined in `presets.json`, editable on the Settings page. Each entry is either an org or a single `owner/repo`:
+Teams are defined as presets on the Settings page, which opens on first start. They are stored in the
+untracked `presets.json`; see `presets.example.json` for the format. Each entry is either an org or a single `owner/repo`:
 
 ```json
 {
-  "office": ["Euro-Office", "nextcloud/richdocuments"],
-  "productivity": ["nextcloud/deck", "nextcloud/text"]
+  "web": ["my-org"],
+  "mobile": ["my-org/ios-app", "other-org/android-app"]
 }
 ```
 
 All presets are synced into one database, and the header switches between them.
 Authors count as members when they belong to the org that owns the repo.
-Without `presets.json`, `ORG` is used as the only preset.
+
+The Settings page also holds the coding agent options: the terminal (iTerm or cmux), the agent
+(Claude Code or a custom command such as `codex {prompt}`), the folder with your checkouts, an optional
+superproject whose submodules are used instead of separate checkouts, and the review prompt.
 
 Optional `.env` in the project root:
 
 ```sh
-ORG=Euro-Office                 # GitHub org to sync without presets.json
 GITHUB_TOKEN=                   # default: `gh auth token`
 PORT=3001
-TERMINAL=iterm                  # iterm or cmux, used to launch Claude Code
-REPOS_DIR=~/repos/euro-office   # where checkouts live, missing repos are cloned with gh
-SUPERPROJECT=DocumentServer     # repos that are submodules of it are used from there
 CMUX_SOCKET_PASSWORD=           # only with cmux socketControlMode "password"
 ```
 
@@ -59,10 +59,10 @@ Click a row (or use `j`/`k`, `Esc` to close) to open its details: description, c
 From there you can comment, close issues as completed, not planned or duplicate, close PRs, and merge PRs.
 Merge is only offered when CI passes and the PR is approved; otherwise a force merge asks you to type `repo#number`.
 
-## Launching Claude Code
+## Launching a coding agent
 
-Every row has a `Claude…` button to start an interactive Claude Code session for a PR (review) or issue,
-with an editable prompt and extra instructions. Sessions run in a separate git worktree by default.
+Every row has a terminal button to start an interactive coding agent session for a PR (review), issue or advisory,
+with an editable prompt and extra instructions. Claude Code sessions run in a separate git worktree by default.
 
 cmux only accepts commands from processes started inside cmux by default. Either start the server from a
 cmux terminal, or set `automation.socketControlMode` to `password` in `~/.config/cmux/cmux.json` and put

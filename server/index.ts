@@ -2,10 +2,10 @@ import { readFile } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { extname, join, normalize, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { ItemsResponse, LaunchRequest, SavedView } from '../shared/types.ts'
+import { AGENTS, TERMINALS, type ItemsResponse, type LaunchRequest, type SavedView, type Settings } from '../shared/types.ts'
 import { allItems, getMeta, setMeta } from './db.ts'
 import { fetchDetails, fetchRepoOptions, parseAction, renderMarkdown, runAction } from './items.ts'
-import { launch } from './launch.ts'
+import { getSettings, launch, setSettings } from './launch.ts'
 import { HttpError, getPresets, getSyncStatus, isOrgMember, presetRepos, savePresets, startSync } from './sync.ts'
 
 const PORT = Number(process.env.PORT ?? 3001)
@@ -42,8 +42,28 @@ function sendJson(res: ServerResponse, body: unknown, statusCode = 200): void {
 
 const MAX_BODY_BYTES = 256 * 1024
 const MAX_VIEWS = 100
+const NAME = /^[\w.-]{0,100}$/
 
-const isShortText = (v: unknown, max: number) => typeof v === 'string' && v.length <= max
+function parseSettings(body: unknown): Settings {
+  const s = (body ?? {}) as Record<string, unknown>
+  if (!isShortText(s.reposDir, 500) || !s.reposDir.trim()) throw new HttpError(400, 'Repository folder must be a path')
+  if (typeof s.superproject !== 'string' || !NAME.test(s.superproject)) throw new HttpError(400, 'Superproject must be a repository name or empty')
+  if (!isShortText(s.reviewPrompt, 5000) || !s.reviewPrompt.trim()) throw new HttpError(400, 'Review prompt must not be empty')
+  if (!TERMINALS.includes(s.terminal as Settings['terminal'])) throw new HttpError(400, `Terminal must be one of ${TERMINALS.join(', ')}`)
+  if (!AGENTS.includes(s.agent as Settings['agent'])) throw new HttpError(400, `Agent must be one of ${AGENTS.join(', ')}`)
+  if (!isShortText(s.agentCommand, 1000)) throw new HttpError(400, 'Agent command must be at most 1000 characters')
+  if (s.agent === 'custom' && !s.agentCommand.includes('{prompt}')) throw new HttpError(400, 'A custom agent command needs a {prompt} placeholder')
+  return {
+    terminal: s.terminal as Settings['terminal'],
+    agent: s.agent as Settings['agent'],
+    agentCommand: s.agentCommand.trim(),
+    reposDir: s.reposDir.trim(),
+    superproject: s.superproject,
+    reviewPrompt: s.reviewPrompt.trim(),
+  }
+}
+
+const isShortText = (v: unknown, max: number): v is string => typeof v === 'string' && v.length <= max
 
 function parseViews(body: unknown): SavedView[] {
   if (!Array.isArray(body) || body.length > MAX_VIEWS) throw new HttpError(400, `Body must be an array of at most ${MAX_VIEWS} views`)
@@ -112,7 +132,7 @@ createServer(async (req, res) => {
     }
     if (pathname === '/api/items' && req.method === 'GET') {
       const items = allItems().map((i) => ({ ...i, member: isOrgMember(i.repo, i.author) }))
-      const body: ItemsResponse = { presets: presetRepos(), items, sync: getSyncStatus() }
+      const body: ItemsResponse = { presets: presetRepos(), settings: getSettings(), items, sync: getSyncStatus() }
       return sendJson(res, body)
     }
     if (itemRoute && !itemRoute[2] && req.method === 'GET') return sendJson(res, await fetchDetails(itemRoute[1]))
@@ -121,6 +141,12 @@ createServer(async (req, res) => {
     if (pathname === '/api/markdown' && req.method === 'POST') return sendJson(res, await renderMarkdown(await readJson(req)))
     if (pathname === '/api/presets' && req.method === 'GET') return sendJson(res, getPresets())
     if (pathname === '/api/presets' && req.method === 'POST') return sendJson(res, await savePresets(await readJson(req)))
+    if (pathname === '/api/settings' && req.method === 'GET') return sendJson(res, getSettings())
+    if (pathname === '/api/settings' && req.method === 'POST') {
+      const settings = parseSettings(await readJson(req))
+      setSettings(settings)
+      return sendJson(res, settings)
+    }
     if (pathname === '/api/views' && req.method === 'GET') return sendJson(res, JSON.parse(getMeta('views') ?? '[]'))
     if (pathname === '/api/views' && req.method === 'POST') {
       const views = parseViews(await readJson(req))

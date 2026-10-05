@@ -5,7 +5,6 @@ import { deleteItemsOutside, getMeta, replaceAdvisories, setMeta, upsertItems } 
 
 const presetsFile = process.env.PRESETS_FILE ?? new URL('../presets.json', import.meta.url)
 const SOURCE = /^[\w.-]{1,39}(\/[\w.-]{1,100})?$/
-const fallbackOrg = process.env.ORG ?? 'Euro-Office'
 
 type Presets = Record<string, string[]>
 
@@ -20,8 +19,7 @@ function validatePresets(presets: unknown): Presets {
   return presets as Presets
 }
 
-const loadPresets = (): Presets =>
-  existsSync(presetsFile) ? validatePresets(JSON.parse(readFileSync(presetsFile, 'utf8'))) : { [fallbackOrg]: [fallbackOrg] }
+const loadPresets = (): Presets => (existsSync(presetsFile) ? validatePresets(JSON.parse(readFileSync(presetsFile, 'utf8'))) : {})
 
 const sourcesOf = (presets: Presets) => [...new Set(Object.values(presets).flat())]
 

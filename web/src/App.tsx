@@ -51,9 +51,9 @@ const FilterButton = ({ filter, value, children }: { filter: 'author' | 'repo' |
 const columns = col.columns([
   col.display({
     id: 'launch',
-    header: () => <span className="sr-only">Claude</span>,
+    header: () => <span className="sr-only">Agent</span>,
     cell: (c) => (
-      <button type="button" className="icon-button" data-launch={c.row.original.id} title="Launch Claude Code" aria-label="Launch Claude Code">
+      <button type="button" className="icon-button" data-launch={c.row.original.id} title="Launch coding agent" aria-label="Launch coding agent">
         <TerminalIcon />
       </button>
     ),
@@ -538,7 +538,7 @@ function Items({ data, error, sync, replaceItem, preset, setPreset }: Data) {
       {filters.item && (
         <Details key={filters.item} id={filters.item} listItem={items.find((i) => i.id === filters.item)} onItem={replaceItem} onClose={closeDetails} />
       )}
-      {launchItem && <LaunchDialog key={launchItem.id} item={launchItem} onClose={() => setLaunchItem(null)} />}
+      {launchItem && data && <LaunchDialog key={launchItem.id} item={launchItem} settings={data.settings} onClose={() => setLaunchItem(null)} />}
     </div>
   )
 }
@@ -616,15 +616,16 @@ export function App() {
   const { pathname, search } = useLocation()
   const data = useData()
   const items = useMemo(() => (data.data?.items ?? EMPTY).filter((i) => i.type !== 'advisory'), [data.data])
-  if (!['/overview', '/team', '/settings'].includes(pathname)) return <Items {...data} />
+  const page = data.data && !Object.keys(data.data.presets).length ? '/settings' : pathname
+  if (!['/overview', '/team', '/settings'].includes(page)) return <Items {...data} />
   return (
     <div className="layout page">
       <Header data={data.data} sync={data.sync} preset={data.preset} setPreset={data.setPreset} />
       {data.error && <p className="error" role="alert">Failed to load: {data.error}</p>}
       <main>
-        {pathname === '/settings' ? (
+        {page === '/settings' ? (
           <Settings onSaved={data.reload} />
-        ) : pathname === '/team' ? (
+        ) : page === '/team' ? (
           <Team items={items} search={search} />
         ) : (
           <Overview items={items} search={search} />

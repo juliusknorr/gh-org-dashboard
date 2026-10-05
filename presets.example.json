@@ -1,0 +1,4 @@
+{
+  "web": ["my-org"],
+  "mobile": ["my-org/ios-app", "other-org/android-app"]
+}

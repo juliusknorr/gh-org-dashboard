@@ -35,9 +35,6 @@ fn start_server(app: &tauri::App) -> Result<(Child, u16), Box<dyn std::error::Er
     let data = app.path().app_data_dir()?;
     fs::create_dir_all(&data)?;
     let presets = data.join("presets.json");
-    if !presets.exists() {
-        fs::copy(resources.join("presets.json"), &presets)?;
-    }
     let port = TcpListener::bind("127.0.0.1:0")?.local_addr()?.port();
     let log = File::create(data.join("server.log"))?;
     let mut command = Command::new(std::env::current_exe()?.with_file_name("node"));

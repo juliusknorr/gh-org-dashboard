@@ -1,13 +1,30 @@
 import { useEffect, useState } from 'react'
+import { AGENTS, TERMINALS, type Settings as LaunchSettings } from '../../shared/types.ts'
 import { PlusIcon, TrashIcon } from '@primer/octicons-react'
 
 type Row = { name: string; sources: string }
 
-const toRows = (presets: Record<string, string[]>): Row[] => Object.entries(presets).map(([name, sources]) => ({ name, sources: sources.join('\n') }))
+const EMPTY_ROW: Row = { name: '', sources: '' }
+const TERMINAL_LABELS: Record<LaunchSettings['terminal'], string> = { iterm: 'iTerm', cmux: 'cmux' }
+const AGENT_LABELS: Record<LaunchSettings['agent'], string> = { claude: 'Claude Code', custom: 'Custom command' }
+
+const toRows = (presets: Record<string, string[]>): Row[] => {
+  const rows = Object.entries(presets).map(([name, sources]) => ({ name, sources: sources.join('\n') }))
+  return rows.length ? rows : [EMPTY_ROW]
+}
 
 const lines = (text: string) => [...new Set(text.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean))]
 
 export function Settings({ onSaved }: { onSaved: () => void }) {
+  return (
+    <div className="settings">
+      <Presets onSaved={onSaved} />
+      <LaunchForm onSaved={onSaved} />
+    </div>
+  )
+}
+
+function Presets({ onSaved }: { onSaved: () => void }) {
   const [rows, setRows] = useState<Row[] | null>(null)
   const [status, setStatus] = useState<{ error?: string; message?: string }>({})
   const [busy, setBusy] = useState(false)
@@ -18,7 +35,7 @@ export function Settings({ onSaved }: { onSaved: () => void }) {
       .then((presets) => setRows(toRows(presets)), (err) => setStatus({ error: String(err) }))
   }, [])
 
-  if (!rows) return <div className="settings">{status.error ? <p className="error">{status.error}</p> : <p className="muted">Loading…</p>}</div>
+  if (!rows) return status.error ? <p className="error">{status.error}</p> : <p className="muted">Loading…</p>
 
   const change = (i: number, patch: Partial<Row>) => setRows(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)))
   const names = rows.map((r) => r.name.trim())
@@ -43,14 +60,14 @@ export function Settings({ onSaved }: { onSaved: () => void }) {
   }
 
   return (
-    <div className="settings">
+    <>
       <h2>Presets</h2>
       <p className="muted">Each preset is a team view. Add one GitHub org or owner/repo per line.</p>
       {rows.map((row, i) => (
         <fieldset key={i} className="ov-card">
           <label>
             Name
-            <input value={row.name} onChange={(e) => change(i, { name: e.target.value })} placeholder="office" />
+            <input value={row.name} onChange={(e) => change(i, { name: e.target.value })} placeholder="my-team" />
           </label>
           <label>
             Orgs and repositories
@@ -58,7 +75,7 @@ export function Settings({ onSaved }: { onSaved: () => void }) {
               rows={Math.max(3, row.sources.split('\n').length + 1)}
               value={row.sources}
               onChange={(e) => change(i, { sources: e.target.value })}
-              placeholder={'Euro-Office\nnextcloud/richdocuments'}
+              placeholder={'my-org\nother-org/some-repo'}
               spellCheck={false}
             />
           </label>
@@ -78,6 +95,95 @@ export function Settings({ onSaved }: { onSaved: () => void }) {
         {status.error && <span className="error" role="alert">{status.error}</span>}
         {status.message && <span className="muted" role="status">{status.message}</span>}
       </div>
-    </div>
+    </>
+  )
+}
+
+function LaunchForm({ onSaved }: { onSaved: () => void }) {
+  const [settings, setSettings] = useState<LaunchSettings | null>(null)
+  const [status, setStatus] = useState<{ error?: string; message?: string }>({})
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    fetch('/api/settings')
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`${res.status} ${res.statusText}`))))
+      .then(setSettings, (err) => setStatus({ error: String(err) }))
+  }, [])
+
+  if (!settings) return status.error ? <p className="error">{status.error}</p> : null
+
+  const change = (patch: Partial<LaunchSettings>) => setSettings({ ...settings, ...patch })
+  const save = async () => {
+    setBusy(true)
+    setStatus({})
+    try {
+      const res = await fetch('/api/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(settings) })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.error ?? `${res.status} ${res.statusText}`)
+      setSettings(json)
+      setStatus({ message: 'Saved.' })
+      onSaved()
+    } catch (err) {
+      setStatus({ error: (err as Error).message })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <>
+      <h2>Coding agent</h2>
+      <fieldset className="ov-card">
+        <label>
+          Terminal
+          <select value={settings.terminal} onChange={(e) => change({ terminal: e.target.value as LaunchSettings['terminal'] })}>
+            {TERMINALS.map((t) => (
+              <option key={t} value={t}>
+                {TERMINAL_LABELS[t]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Agent
+          <select value={settings.agent} onChange={(e) => change({ agent: e.target.value as LaunchSettings['agent'] })}>
+            {AGENTS.map((a) => (
+              <option key={a} value={a}>
+                {AGENT_LABELS[a]}
+              </option>
+            ))}
+          </select>
+        </label>
+        {settings.agent === 'custom' && (
+          <label>
+            Agent command
+            <input value={settings.agentCommand} onChange={(e) => change({ agentCommand: e.target.value })} placeholder="codex {prompt}" spellCheck={false} />
+            <span className="muted">Runs in the checkout. {'{prompt}'} and {'{name}'} are replaced, already shell-quoted.</span>
+          </label>
+        )}
+        <label>
+          Repository folder
+          <input value={settings.reposDir} onChange={(e) => change({ reposDir: e.target.value })} placeholder="~/repos" spellCheck={false} />
+          <span className="muted">Checkouts live in this folder as one directory per repository. Missing ones are cloned with gh.</span>
+        </label>
+        <label>
+          Superproject (optional)
+          <input value={settings.superproject} onChange={(e) => change({ superproject: e.target.value })} placeholder="main-repo" spellCheck={false} />
+          <span className="muted">A repository in that folder whose git submodules are used instead of separate checkouts.</span>
+        </label>
+        <label>
+          Review prompt
+          <textarea rows={3} value={settings.reviewPrompt} onChange={(e) => change({ reviewPrompt: e.target.value })} />
+          <span className="muted">Used for "Review PR". {'{url}'} is replaced with the pull request URL.</span>
+        </label>
+      </fieldset>
+      <div className="row">
+        <button type="button" className="primary" onClick={save} disabled={busy}>
+          {busy ? 'Saving…' : 'Save'}
+        </button>
+        {status.error && <span className="error" role="alert">{status.error}</span>}
+        {status.message && <span className="muted" role="status">{status.message}</span>}
+      </div>
+    </>
   )
 }

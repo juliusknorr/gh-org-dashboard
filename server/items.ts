@@ -1,6 +1,6 @@
 import { mergeBlockers } from '../shared/merge.ts'
 import type { Check, ItemAction, ItemDetails, MergeMethod, PrDetails, RepoOptions, Review } from '../shared/types.ts'
-import { allItems, deleteItem, upsertItems } from './db.ts'
+import { allItems, deleteItem, markRead, readAt, upsertItems } from './db.ts'
 import { COMMON_FIELDS, HttpError, ISSUE_FIELDS, PR_FIELDS, advisoryItem, ensureOrgMembers, graphql, isAdvisoryId, isSyncedRepo, rest, toItem, type RawNode } from './sync.ts'
 
 const MAX_COMMENT_LENGTH = 65536
@@ -101,7 +101,7 @@ async function fetchAdvisoryDetails(id: string): Promise<ItemDetails> {
   upsertItems([item])
   const text: string = raw.description?.trim() || '_No description._'
   return {
-    item,
+    item: { ...item, readAt: readAt(id) },
     bodyHTML: await rest('POST', '/markdown', { text, mode: 'gfm', context: item.repo }),
     comments: [],
     totalComments: item.comments,
@@ -127,7 +127,7 @@ export async function fetchDetails(id: string): Promise<ItemDetails> {
   const item = toItem(node.repository.nameWithOwner, node)
   upsertItems([item])
   return {
-    item,
+    item: { ...item, readAt: readAt(id) },
     bodyHTML: node.bodyHTML,
     comments: node.recentComments.nodes.map((c) => ({ author: c.author?.login ?? null, createdAt: c.createdAt, bodyHTML: c.bodyHTML, url: c.url })),
     totalComments: node.comments.totalCount,
@@ -395,7 +395,8 @@ export async function runAction(id: string, action: ItemAction): Promise<ItemDet
       break
     }
   }
-  return fetchDetails(id)
+  const updated = await fetchDetails(id)
+  return { ...updated, item: { ...updated.item, readAt: markRead([id], true)[id] ?? null } }
 }
 
 export async function renderMarkdown(body: unknown): Promise<{ html: string }> {

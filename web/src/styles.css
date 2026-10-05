@@ -12,7 +12,7 @@
   --warn: #9a6700;
   --series-1: #2a78d6;
   --series-2: #eb6834;
-  --cols: 32px 28px 180px minmax(280px, 1fr) 150px 120px 200px 56px 56px 100px 100px;
+  --cols: 32px 28px 28px 180px minmax(280px, 1fr) 150px 120px 200px 56px 56px 100px 100px;
   font: 14px/1.4 system-ui, sans-serif;
 }
 @media (prefers-color-scheme: dark) {
@@ -107,6 +107,8 @@ tr { display: grid; grid-template-columns: var(--cols); width: 100%; }
 tbody tr { position: absolute; height: 36px; border-bottom: 1px solid var(--border); }
 tbody tr { cursor: pointer; }
 tbody tr:hover { background: var(--bg-alt); }
+tbody tr.unread .col-title a { font-weight: 600; }
+td.col-read button { color: var(--accent); }
 tbody tr[aria-selected='true'] { background: color-mix(in srgb, var(--accent) 15%, var(--bg)); }
 th, td { padding: 0 0.5rem; display: flex; align-items: center; gap: 0.25rem; overflow: hidden; white-space: nowrap; }
 th { height: 36px; text-align: left; border-bottom: 1px solid var(--border); }

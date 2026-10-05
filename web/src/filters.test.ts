@@ -75,6 +75,17 @@ test('filters', () => {
   assert.deepEqual(numbers({ state: [], closed: daysAgo(2).slice(0, 10) }), [2])
 })
 
+test('read items only resurface after an update', () => {
+  const seen = item({ readAt: daysAgo(1) })
+  const updated = item({ readAt: daysAgo(2) })
+  const unseen = item({})
+  const pick = (read: typeof DEFAULT_FILTERS.read) => filterItems([seen, updated, unseen], { ...DEFAULT_FILTERS, read }, now)
+  assert.deepEqual(pick('unread'), [updated, unseen])
+  assert.deepEqual(pick('read'), [seen])
+  assert.deepEqual(pick(''), [seen, updated, unseen])
+  assert.equal(parseFilters(serializeFilters({ ...DEFAULT_FILTERS, read: '' })).read, '')
+})
+
 test('url round-trip', () => {
   assert.equal(serializeFilters(DEFAULT_FILTERS), '')
   assert.deepEqual(parseFilters(''), DEFAULT_FILTERS)

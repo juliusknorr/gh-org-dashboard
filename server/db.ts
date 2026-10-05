@@ -12,6 +12,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS items (id TEXT PRIMARY KEY, repo TEXT NOT NULL, updated_at TEXT NOT NULL, json TEXT NOT NULL);
   CREATE INDEX IF NOT EXISTS items_updated_at ON items (updated_at DESC);
   CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+  CREATE TABLE IF NOT EXISTS reads (id TEXT PRIMARY KEY, read_at TEXT NOT NULL);
 `)
 
 const SCHEMA_VERSION = '5'
@@ -19,7 +20,12 @@ const SCHEMA_VERSION = '5'
 const upsertStmt = db.prepare(
   'INSERT INTO items (id, repo, updated_at, json) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET repo = excluded.repo, updated_at = excluded.updated_at, json = excluded.json WHERE excluded.updated_at >= items.updated_at',
 )
-const allStmt = db.prepare('SELECT json FROM items ORDER BY updated_at DESC')
+const allStmt = db.prepare('SELECT json, read_at FROM items LEFT JOIN reads USING (id) ORDER BY updated_at DESC')
+const markReadStmt = db.prepare(
+  'INSERT INTO reads (id, read_at) SELECT id, updated_at FROM items WHERE id IN (SELECT value FROM json_each(?)) ON CONFLICT(id) DO UPDATE SET read_at = excluded.read_at RETURNING id, read_at',
+)
+const markUnreadStmt = db.prepare('DELETE FROM reads WHERE id IN (SELECT value FROM json_each(?))')
+const readAtStmt = db.prepare('SELECT read_at FROM reads WHERE id = ?')
 const deleteStmt = db.prepare('DELETE FROM items WHERE id = ?')
 const deleteOutsideStmt = db.prepare('DELETE FROM items WHERE lower(repo) NOT IN (SELECT lower(value) FROM json_each(?))')
 const deleteWatermarksOutsideStmt = db.prepare(
@@ -43,7 +49,19 @@ export function upsertItems(items: Item[]): void {
 }
 
 export function allItems(): Item[] {
-  return allStmt.all().map((row) => JSON.parse(row.json as string) as Item)
+  return allStmt.all().map((row) => ({ ...(JSON.parse(row.json as string) as Item), readAt: (row.read_at as string | null) ?? null }))
+}
+
+export function readAt(id: string): string | null {
+  return (readAtStmt.get(id)?.read_at as string | undefined) ?? null
+}
+
+export function markRead(ids: string[], read: boolean): Record<string, string | null> {
+  if (!read) {
+    markUnreadStmt.run(JSON.stringify(ids))
+    return Object.fromEntries(ids.map((id) => [id, null]))
+  }
+  return Object.fromEntries(markReadStmt.all(JSON.stringify(ids)).map((row) => [row.id as string, row.read_at as string]))
 }
 
 export function deleteItem(id: string): void {

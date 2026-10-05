@@ -28,6 +28,7 @@ export interface Item {
   firstReviewAt: string | null
   triagedAt: string | null
   triagedBy: string | null
+  readAt?: string | null
 }
 
 export interface SyncStatus {

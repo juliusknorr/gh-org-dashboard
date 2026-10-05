@@ -13,7 +13,9 @@ export interface Metric {
   list: Item[]
 }
 
-export const itemsHref = (query: Query) => `/?${serializeFilters({ ...DEFAULT_FILTERS, ...query })}`
+const BASE: Filters = { ...DEFAULT_FILTERS, read: '' }
+
+export const itemsHref = (query: Query) => `/?${serializeFilters({ ...BASE, ...query })}`
 
 export function members(items: Item[], weeks: number, now = Date.now()) {
   const logins = new Set(items.filter((i) => i.member).map((i) => i.author).filter((a) => a !== null))
@@ -31,7 +33,7 @@ export function members(items: Item[], weeks: number, now = Date.now()) {
 const scope = (items: Item[], login: string, now: number) => {
   const mine = items.filter((i) => i.author === login || i.assignees.includes(login) || i.reviewRequests.includes(login) || i.triagedBy === login)
   return (query: Query): Metric => {
-    const list = filterItems(mine, { ...DEFAULT_FILTERS, ...query }, now)
+    const list = filterItems(mine, { ...BASE, ...query }, now)
     return { count: list.length, href: itemsHref(query), list }
   }
 }

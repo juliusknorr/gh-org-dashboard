@@ -17,6 +17,7 @@ import {
   countBy,
   filterItems,
   authorKind,
+  isUnread,
   parseFilters,
   serializeFilters,
   type Filters,
@@ -26,7 +27,7 @@ import { Details } from './Details.tsx'
 import { Overview } from './Overview.tsx'
 import { Settings } from './Settings.tsx'
 import { Team } from './Team.tsx'
-import { CommentIcon, IssueOpenedIcon, SidebarCollapseIcon, SidebarExpandIcon, SyncIcon, TerminalIcon, XIcon } from '@primer/octicons-react'
+import { CommentIcon, DotFillIcon, DotIcon, IssueOpenedIcon, SidebarCollapseIcon, SidebarExpandIcon, SyncIcon, TerminalIcon, XIcon } from '@primer/octicons-react'
 import { AuthorBadge, CiIcon, ReviewIcon, StateIcon, Time, textColor } from './format.tsx'
 
 const ROW_HEIGHT = 36
@@ -34,6 +35,7 @@ const SYNC_POLL_MS = 2000
 const IDLE_POLL_MS = 30_000
 const EMPTY: Item[] = []
 const PRESET_KEY = 'preset'
+const READ_BATCH = 5000
 
 const features = tableFeatures({
   rowSortingFeature,
@@ -57,6 +59,19 @@ const columns = col.columns([
         <TerminalIcon />
       </button>
     ),
+  }),
+  col.display({
+    id: 'read',
+    header: () => <span className="sr-only">Read</span>,
+    cell: (c) => {
+      const unread = isUnread(c.row.original)
+      const label = unread ? 'Mark read (e)' : 'Mark unread (e)'
+      return (
+        <button type="button" className="icon-button" data-read={c.row.original.id} title={label} aria-label={label}>
+          {unread ? <DotFillIcon /> : <DotIcon />}
+        </button>
+      )
+    },
   }),
   col.accessor((i) => (i.type === 'pr' ? (i.draft ? 'PR draft' : 'PR') : i.type === 'advisory' ? 'Advisory' : 'Issue'), {
     id: 'type',
@@ -206,6 +221,19 @@ function useData() {
     (item: Item) => setData((d) => d && { ...d, items: d.items.map((i) => (i.id === item.id ? item : i)) }),
     [],
   )
+  const setRead = useCallback(async (ids: string[], read: boolean) => {
+    try {
+      for (let i = 0; i < ids.length; i += READ_BATCH) {
+        const res = await fetch('/api/read', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ids: ids.slice(i, i + READ_BATCH), read }) })
+        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+        const readAt: Record<string, string | null> = await res.json()
+        setData((d) => d && { ...d, items: d.items.map((item) => (item.id in readAt ? { ...item, readAt: readAt[item.id] } : item)) })
+      }
+      setError(null)
+    } catch (e) {
+      setError(String(e))
+    }
+  }, [])
   useEffect(() => void load(), [load])
   const running = data?.sync.running
   const lastSyncAt = data?.sync.lastSyncAt
@@ -222,7 +250,7 @@ function useData() {
     const timer = setInterval(poll, running ? SYNC_POLL_MS : IDLE_POLL_MS)
     return () => clearInterval(timer)
   }, [running, lastSyncAt, load])
-  return { data, error, sync, replaceItem, preset, setPreset, reload: load }
+  return { data, error, sync, replaceItem, setRead, preset, setPreset, reload: load }
 }
 
 type Counts = [string, number][]
@@ -272,6 +300,7 @@ function Multi({ label, values, counts, onChange, open }: { label: string; value
 
 function useViews() {
   const [views, setViews] = useState<SavedView[]>([])
+  const [error, setError] = useState<string | null>(null)
   useEffect(() => {
     fetch('/api/views')
       .then((res) => (res.ok ? res.json() : []))
@@ -280,6 +309,7 @@ function useViews() {
   const save = async (next: SavedView[]) => {
     const res = await fetch('/api/views', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(next) })
     const json = await res.json().catch(() => ({}))
+    setError(res.ok ? null : `Saving views failed: ${json.error ?? res.statusText}`)
     if (res.ok) setViews(json)
     return res.ok
   }
@@ -302,7 +332,6 @@ function SavedViews({ filters, preset, setPreset }: { filters: Filters } & Pick<
         <ul>
           {views.map((v) => (
             <li key={v.name}>
-  const [error, setError] = useState<string | null>(null)
               <a
                 href={v.search ? `/?${v.search}` : '/'}
                 aria-current={v.search === current && (!v.preset || v.preset === preset) ? 'page' : undefined}
@@ -311,7 +340,6 @@ function SavedViews({ filters, preset, setPreset }: { filters: Filters } & Pick<
                 {v.name}
                 {v.preset && v.preset !== preset && <span className="muted"> · {v.preset}</span>}
               </a>
-    setError(res.ok ? null : `Saving views failed: ${json.error ?? res.statusText}`)
               <button type="button" className="link" aria-label={`Remove ${v.name}`} title="Remove" onClick={() => save(views.filter((x) => x !== v))}>
                 <XIcon />
               </button>
@@ -353,6 +381,7 @@ function Sidebar({
         Search
         <input type="search" placeholder="title or repo#123" value={filters.q} onChange={(e) => update({ q: e.target.value }, true)} />
       </label>
+      <Single label="Read" value={filters.read} counts={facet('read', (i) => [isUnread(i) ? 'unread' : 'read'])} onChange={(v) => update({ read: v as Filters['read'] })} />
       <Single label="Type" anyLabel="All" value={filters.type} counts={facet('type', (i) => [i.type])} onChange={(v) => update({ type: v as Filters['type'] })} />
       <Multi label="State" open values={filters.state} counts={facet('state', (i) => [i.state])} onChange={(v) => update({ state: v as Filters['state'] })} />
       <Multi label="Repository" values={filters.repo} counts={facet('repo', (i) => [i.repo])} onChange={(repo) => update({ repo })} />
@@ -412,7 +441,7 @@ function useFiltersHidden() {
   return [hidden, toggle] as const
 }
 
-function Items({ data, error, sync, replaceItem, preset, setPreset }: Data) {
+function Items({ data, error, sync, replaceItem, setRead, preset, setPreset }: Data) {
   const [filtersHidden, toggleFilters] = useFiltersHidden()
   const [filters, update] = useUrlFilters()
   const items = data?.items ?? EMPTY
@@ -444,10 +473,18 @@ function Items({ data, error, sync, replaceItem, preset, setPreset }: Data) {
   })
 
   const [launchItem, setLaunchItem] = useState<Item | null>(null)
+  const unreadIds = useMemo(() => filtered.filter(isUnread).map((i) => i.id), [filtered])
+
+  const toggleRead = (id: string) => {
+    const item = items.find((i) => i.id === id)
+    if (item) void setRead([id], isUnread(item))
+  }
 
   const onTableClick = (e: MouseEvent) => {
     const launchId = (e.target as HTMLElement).closest<HTMLElement>('[data-launch]')?.dataset.launch
     if (launchId) return setLaunchItem(items.find((i) => i.id === launchId) ?? null)
+    const readId = (e.target as HTMLElement).closest<HTMLElement>('[data-read]')?.dataset.read
+    if (readId) return toggleRead(readId)
     const target = (e.target as HTMLElement).closest<HTMLElement>('[data-filter]')
     const { filter, value } = target?.dataset ?? {}
     if (value) {
@@ -470,6 +507,13 @@ function Items({ data, error, sync, replaceItem, preset, setPreset }: Data) {
       if (filters.item && e.key === 'l') {
         const item = items.find((i) => i.id === filters.item)
         return item && setLaunchItem(item)
+      }
+      if (filters.item && e.key === 'e') {
+        const current = rows.findIndex((r) => r.id === filters.item)
+        const next = rows[current + 1] ?? rows[current - 1]
+        toggleRead(filters.item)
+        if (filters.read && next) update({ item: next.id }, true)
+        return
       }
       const shortcut = filters.item && document.querySelector<HTMLElement>(`aside.details [data-shortcut="${CSS.escape(e.key)}"]`)
       if (shortcut) {
@@ -504,6 +548,11 @@ function Items({ data, error, sync, replaceItem, preset, setPreset }: Data) {
         <output>
           {filtered.length} of {items.length} items
         </output>
+        {unreadIds.length > 0 && (
+          <button type="button" onClick={() => setRead(unreadIds, true)}>
+            Mark {unreadIds.length} read
+          </button>
+        )}
       </Header>
       {error && <p className="error" role="alert">Failed to load: {error}</p>}
       {!filtersHidden && <Sidebar items={items} filters={filters} update={update} preset={preset} setPreset={setPreset} />}
@@ -534,7 +583,7 @@ function Items({ data, error, sync, replaceItem, preset, setPreset }: Data) {
             {virtualizer.getVirtualItems().map((v) => {
               const row = rows[v.index]
               return (
-                <tr key={row.id} data-id={row.id} aria-selected={row.id === filters.item} style={{ transform: `translateY(${v.start - ROW_HEIGHT}px)` }}>
+                <tr key={row.id} data-id={row.id} className={isUnread(row.original) ? 'unread' : undefined} aria-selected={row.id === filters.item} style={{ transform: `translateY(${v.start - ROW_HEIGHT}px)` }}>
                   {row.getAllCells().map((cell) => (
                     <td key={cell.id} className={`col-${cell.column.id}`}>
                       <table.FlexRender cell={cell} />

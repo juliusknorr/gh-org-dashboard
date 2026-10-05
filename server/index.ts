@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { extname, join, normalize, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { AGENTS, TERMINALS, type ItemsResponse, type LaunchRequest, type SavedView, type Settings } from '../shared/types.ts'
-import { allItems, getMeta, setMeta } from './db.ts'
+import { allItems, getMeta, markRead, setMeta } from './db.ts'
 import { fetchDetails, fetchRepoOptions, parseAction, renderMarkdown, runAction } from './items.ts'
 import { getSettings, launch, setSettings } from './launch.ts'
 import { HttpError, getPresets, getSyncStatus, isOrgMember, presetRepos, savePresets, startSync } from './sync.ts'
@@ -64,6 +64,17 @@ function parseSettings(body: unknown): Settings {
 }
 
 const isShortText = (v: unknown, max: number): v is string => typeof v === 'string' && v.length <= max
+
+const MAX_READ_IDS = 5000
+
+function parseRead(body: unknown): { ids: string[]; read: boolean } {
+  const { ids, read } = (body ?? {}) as Record<string, unknown>
+  if (!Array.isArray(ids) || ids.length > MAX_READ_IDS || !ids.every((id) => isShortText(id, 100))) {
+    throw new HttpError(400, `ids must be an array of at most ${MAX_READ_IDS} item ids`)
+  }
+  if (typeof read !== 'boolean') throw new HttpError(400, 'read must be a boolean')
+  return { ids, read }
+}
 
 function parseViews(body: unknown): SavedView[] {
   if (!Array.isArray(body) || body.length > MAX_VIEWS) throw new HttpError(400, `Body must be an array of at most ${MAX_VIEWS} views`)
@@ -152,6 +163,10 @@ createServer(async (req, res) => {
       const views = parseViews(await readJson(req))
       setMeta('views', JSON.stringify(views))
       return sendJson(res, views)
+    }
+    if (pathname === '/api/read' && req.method === 'POST') {
+      const { ids, read } = parseRead(await readJson(req))
+      return sendJson(res, markRead(ids, read))
     }
     if (pathname === '/api/sync' && req.method === 'GET') return sendJson(res, getSyncStatus())
     if (pathname === '/api/sync' && req.method === 'POST') return sendJson(res, startSync())

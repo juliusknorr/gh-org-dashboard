@@ -1,5 +1,5 @@
 import { mergeBlockers } from '../shared/merge.ts'
-import type { Check, ItemAction, ItemDetails, MergeMethod, PrDetails, RepoOptions, Review } from '../shared/types.ts'
+import type { Check, ItemAction, ItemDetails, MergeMethod, PrDetails, RepoOptions, Review, ReviewEvent } from '../shared/types.ts'
 import { allItems, deleteItem, markRead, readAt, upsertItems } from './db.ts'
 import { COMMON_FIELDS, HttpError, ISSUE_FIELDS, PR_FIELDS, advisoryItem, ensureOrgMembers, graphql, isAdvisoryId, isSyncedRepo, rest, toItem, type RawNode } from './sync.ts'
 
@@ -7,6 +7,7 @@ const MAX_COMMENT_LENGTH = 65536
 const MAX_REF_LENGTH = 200
 const MERGE_METHODS: MergeMethod[] = ['MERGE', 'SQUASH', 'REBASE']
 const CLOSE_REASONS = ['COMPLETED', 'NOT_PLANNED']
+const REVIEW_EVENTS: ReviewEvent[] = ['APPROVE', 'REQUEST_CHANGES']
 const NO_RETRY = 1
 const MAX_LIST_ENTRIES = 50
 const OPTIONS_TTL_MS = 10 * 60 * 1000
@@ -171,6 +172,11 @@ export function parseAction(body: unknown): ItemAction {
       if (typeof a.expectedHeadOid !== 'string' || !/^[0-9a-f]{40}$/.test(a.expectedHeadOid)) throw new HttpError(400, 'expectedHeadOid must be a commit SHA')
       if (typeof a.force !== 'boolean') throw new HttpError(400, 'force must be a boolean')
       return { type: 'merge', method: a.method as MergeMethod, expectedHeadOid: a.expectedHeadOid, force: a.force }
+    case 'review':
+      if (!REVIEW_EVENTS.includes(a.event as ReviewEvent)) throw new HttpError(400, `event must be one of ${REVIEW_EVENTS.join(', ')}`)
+      if (typeof a.expectedHeadOid !== 'string' || !/^[0-9a-f]{40}$/.test(a.expectedHeadOid)) throw new HttpError(400, 'expectedHeadOid must be a commit SHA')
+      if (a.event === 'REQUEST_CHANGES' && !comment?.trim()) throw new HttpError(400, 'Requesting changes needs a comment')
+      return { type: 'review', event: a.event as ReviewEvent, expectedHeadOid: a.expectedHeadOid, comment }
     case 'labels':
     case 'assignees':
     case 'reviewers': {
@@ -189,7 +195,7 @@ export function parseAction(body: unknown): ItemAction {
       return { type: a.type, add, remove }
     }
     default:
-      throw new HttpError(400, 'type must be one of comment, close, duplicate, merge, labels, assignees, reviewers')
+      throw new HttpError(400, 'type must be one of comment, close, duplicate, merge, review, labels, assignees, reviewers')
   }
 }
 
@@ -354,6 +360,16 @@ export async function runAction(id: string, action: ItemAction): Promise<ItemDet
       )
       break
     }
+    case 'review':
+      if (!pr) throw new HttpError(400, 'Only pull requests can be reviewed')
+      if (pr.headOid !== action.expectedHeadOid) throw new HttpError(409, 'The pull request head changed since it was viewed', { headOid: pr.headOid })
+      await mutate(
+        `mutation($id: ID!, $event: PullRequestReviewEvent!, $oid: GitObjectID!, $body: String) {
+          addPullRequestReview(input: { pullRequestId: $id, event: $event, commitOID: $oid, body: $body }) { clientMutationId }
+        }`,
+        { id, event: action.event, oid: action.expectedHeadOid, body: action.comment?.trim() || null },
+      )
+      break
     case 'labels': {
       const options = await repoOptions(item.repo)
       const add = labelIds(action.add, options)

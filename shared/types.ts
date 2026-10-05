@@ -121,6 +121,8 @@ export interface ItemDetails {
   pr: PrDetails | null
 }
 
+export type ReviewEvent = 'APPROVE' | 'REQUEST_CHANGES'
+
 export type ItemAction =
   | { type: 'comment'; body: string }
   | { type: 'close'; reason: 'COMPLETED' | 'NOT_PLANNED'; comment?: string }
@@ -129,6 +131,7 @@ export type ItemAction =
   | { type: 'labels'; add: string[]; remove: string[] }
   | { type: 'assignees'; add: string[]; remove: string[] }
   | { type: 'reviewers'; add: string[]; remove: string[] }
+  | { type: 'review'; event: ReviewEvent; expectedHeadOid: string; comment?: string }
 
 export interface RepoOptions {
   labels: { name: string; color: string; description: string | null }[]

@@ -8,6 +8,7 @@ const SHORTCUTS: { keys: string[]; label: string; context: Context; hint?: strin
   { keys: ['e'], label: 'Mark read / unread', context: 'item', hint: 'read' },
   { keys: ['o'], label: 'Open on GitHub', context: 'item', hint: 'open' },
   { keys: ['c'], label: 'Comment', context: 'item', hint: 'comment' },
+  { keys: ['r'], label: 'Review pull request', context: 'item', hint: 'review' },
   { keys: ['l'], label: 'Launch coding agent', context: 'item', hint: 'agent' },
   { keys: ['a'], label: 'Edit assignees', context: 'item' },
   { keys: ['Shift', 'L'], label: 'Edit labels', context: 'item' },

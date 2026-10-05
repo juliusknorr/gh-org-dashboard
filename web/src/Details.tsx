@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type SyntheticEvent } from 'react'
-import type { Item, ItemAction, ItemDetails, MergeMethod, PrDetails, RepoOptions, Review } from '../../shared/types.ts'
+import type { Item, ItemAction, ItemDetails, MergeMethod, PrDetails, RepoOptions, Review, ReviewEvent } from '../../shared/types.ts'
 import { mergeBlockers } from '../../shared/merge.ts'
 import {
   AlertIcon,
+  CheckIcon,
   ChecklistIcon,
+  CodeReviewIcon,
   CommentIcon,
   DuplicateIcon,
   EyeIcon,
@@ -309,12 +311,75 @@ function ForceMergeDialog({ details, onConfirm, onClose }: { details: ItemDetail
   )
 }
 
+function ReviewDialog({ details, run, onClose }: { details: ItemDetails; run: (a: ItemAction) => Promise<void>; onClose: () => void }) {
+  const [event, setEvent] = useState<ReviewEvent>('APPROVE')
+  const [comment, setComment] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const dialogRef = useRef<HTMLDialogElement>(null)
+  useEffect(() => dialogRef.current?.showModal(), [])
+  const needsComment = event === 'REQUEST_CHANGES' && !comment.trim()
+  const submit = async () => {
+    if (busy || needsComment) return
+    setBusy(true)
+    setError(null)
+    try {
+      await run({ type: 'review', event, expectedHeadOid: details.pr!.headOid, comment: comment.trim() || undefined })
+      dialogRef.current?.close()
+    } catch (e) {
+      setError((e as Error).message)
+      setBusy(false)
+    }
+  }
+  return (
+    <dialog ref={dialogRef} className="launch" onClose={onClose}>
+      <form method="dialog" onSubmit={(e) => (e.preventDefault(), submit())}>
+        <h2>Review {itemRef(details.item)}</h2>
+        <fieldset className="presets">
+          <legend>Verdict</legend>
+          <label>
+            <input type="radio" name="event" checked={event === 'APPROVE'} onChange={() => setEvent('APPROVE')} /> Approve
+          </label>
+          <label>
+            <input type="radio" name="event" checked={event === 'REQUEST_CHANGES'} onChange={() => setEvent('REQUEST_CHANGES')} /> Request changes
+          </label>
+        </fieldset>
+        <label>
+          Comment
+          <textarea
+            rows={4}
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && (e.preventDefault(), submit())}
+            placeholder={event === 'APPROVE' ? 'Optional, Enter to submit, Shift+Enter for a new line' : 'Required, Enter to submit, Shift+Enter for a new line'}
+            autoFocus
+          />
+        </label>
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
+        <div className="actions">
+          <button type="button" onClick={() => dialogRef.current?.close()}>
+            Cancel
+          </button>
+          <button type="submit" className={event === 'APPROVE' ? 'primary' : 'danger'} disabled={busy || needsComment}>
+            {event === 'APPROVE' ? <CheckIcon /> : <AlertIcon />} {event === 'APPROVE' ? 'Approve' : 'Request changes'}
+          </button>
+        </div>
+      </form>
+    </dialog>
+  )
+}
+
 function Footer({ details, run }: { details: ItemDetails; run: (a: ItemAction) => Promise<void> }) {
   const { item, pr } = details
   const [comment, setComment] = useState('')
   const [duplicateOf, setDuplicateOf] = useState('')
   const [method, setMethod] = useState<MergeMethod | undefined>(pr?.defaultMergeMethod)
   const [forcing, setForcing] = useState(false)
+  const [reviewing, setReviewing] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const menuRef = useRef<HTMLDetailsElement>(null)
@@ -356,6 +421,11 @@ function Footer({ details, run }: { details: ItemDetails; run: (a: ItemAction) =
         <button type="button" disabled={busy || !body} onClick={() => submit({ type: 'comment', body })}>
           <CommentIcon /> Comment
         </button>
+        {pr && item.state === 'open' && (
+          <button type="button" disabled={busy} onClick={() => setReviewing(true)} data-shortcut="r" title="Review (r)">
+            <CodeReviewIcon /> Review…
+          </button>
+        )}
         {canClose && (
           <details className="menu" ref={menuRef}>
             <summary className="button">
@@ -413,6 +483,7 @@ function Footer({ details, run }: { details: ItemDetails; run: (a: ItemAction) =
         )}
         {busy && <span className="muted">Working…</span>}
       </div>
+      {reviewing && <ReviewDialog details={details} run={run} onClose={() => setReviewing(false)} />}
       {forcing && <ForceMergeDialog details={details} onConfirm={() => merge(true)} onClose={() => setForcing(false)} />}
     </footer>
   )

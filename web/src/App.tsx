@@ -379,6 +379,9 @@ function Sidebar({
   return (
     <aside>
       <SavedViews filters={filters} preset={preset} setPreset={setPreset} />
+      <button type="button" onClick={() => update({ ...DEFAULT_FILTERS, sort: filters.sort, item: filters.item })}>
+        Reset filters
+      </button>
       <label>
         Search
         <input type="search" placeholder="title or repo#123" value={filters.q} onChange={(e) => update({ q: e.target.value }, true)} />
@@ -415,9 +418,6 @@ function Sidebar({
         Closed
         <input placeholder="2026-01-01..2026-01-31" value={filters.closed} onChange={(e) => update({ closed: e.target.value.trim() }, true)} />
       </label>
-      <button type="button" onClick={() => update({ ...DEFAULT_FILTERS, sort: filters.sort, item: filters.item })}>
-        Reset filters
-      </button>
     </aside>
   )
 }

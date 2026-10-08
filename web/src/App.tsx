@@ -24,13 +24,14 @@ import {
   type Filters,
 } from './filters.ts'
 import { LaunchDialog } from './LaunchDialog.tsx'
-import { AI_STATUS_LABELS, AiReviews, AiStatusIcon, startAiReview, useAiReviews } from './AiReviews.tsx'
+import { AI_STATUS_LABELS, AiReviews, startAiReview, useAiReviews } from './AiReviews.tsx'
+import { AiReviewIcon, CodingAgentIcon } from './icons.tsx'
 import { Details } from './Details.tsx'
 import { Overview } from './Overview.tsx'
 import { Settings } from './Settings.tsx'
 import { ShortcutHints, ShortcutsDialog } from './Shortcuts.tsx'
 import { Team } from './Team.tsx'
-import { CommentIcon, DotFillIcon, DotIcon, IssueOpenedIcon, SidebarCollapseIcon, SidebarExpandIcon, SyncIcon, TerminalIcon, XIcon } from '@primer/octicons-react'
+import { CommentIcon, DotFillIcon, DotIcon, IssueOpenedIcon, SidebarCollapseIcon, SidebarExpandIcon, SyncIcon, XIcon } from '@primer/octicons-react'
 import { AuthorBadge, CiIcon, ReviewIcon, StateIcon, Time, textColor } from './format.tsx'
 
 const ROW_HEIGHT = 36
@@ -59,7 +60,7 @@ const columns = col.columns([
     header: () => <span className="sr-only">Agent</span>,
     cell: (c) => (
       <button type="button" className="icon-button" data-launch={c.row.original.id} title="Launch coding agent" aria-label="Launch coding agent">
-        <TerminalIcon />
+        <CodingAgentIcon />
       </button>
     ),
   }),
@@ -72,7 +73,7 @@ const columns = col.columns([
       const label = aiReview ? `${AI_STATUS_LABELS[aiReview]}, open it` : 'Run AI review'
       return (
         <button type="button" className="icon-button" data-ai={id} title={label} aria-label={label}>
-          <AiStatusIcon status={aiReview} />
+          <AiReviewIcon status={aiReview} />
         </button>
       )
     },

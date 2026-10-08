@@ -197,6 +197,7 @@ body.resizing { cursor: col-resize; user-select: none; }
 body.resizing iframe { pointer-events: none; }
 
 svg.octicon { flex: none; vertical-align: text-bottom; fill: currentColor; }
+svg.line-icon { flex: none; vertical-align: text-bottom; overflow: visible; }
 .icon { display: inline-flex; align-items: center; }
 button { display: inline-flex; align-items: center; gap: 0.35rem; }
 button.icon-button { padding: 2px 4px; background: none; border-color: transparent; color: var(--muted); }
@@ -205,6 +206,12 @@ button.icon-button:hover { color: var(--fg); border-color: var(--border); backgr
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+.ai-badge circle { fill: var(--open); }
+.ai-failed .ai-badge circle { fill: var(--closed); }
+.ai-running { color: var(--accent); }
+.ai-running .ai-sparkle { transform-origin: 7.25px 6.25px; animation: ai-pulse 1.2s ease-in-out infinite; }
+@keyframes ai-pulse { 50% { transform: scale(0.45) rotate(45deg); opacity: 0.6; } }
+@media (prefers-reduced-motion: reduce) { .ai-running .ai-sparkle { animation: none; } }
 .meta dt { display: inline-flex; align-items: center; gap: 0.3rem; }
 .slot { display: inline-flex; width: 18px; }
 

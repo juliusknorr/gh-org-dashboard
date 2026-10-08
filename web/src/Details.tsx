@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, typ
 import type { AiReview, AiReviewRequest, AiReviewTurn, Item, ItemAction, ItemDetails, MergeMethod, PrDetails, RepoOptions, Review, ReviewEvent } from '../../shared/types.ts'
 import { mergeBlockers, mergeableOnceApproved, reviewState } from '../../shared/merge.ts'
 import {
-  AgentIcon,
   AlertIcon,
   CheckIcon,
   ChecklistIcon,
@@ -28,6 +27,7 @@ import {
   type Icon,
 } from '@primer/octicons-react'
 import { notifyReviewsChanged } from './AiReviews.tsx'
+import { AiReviewIcon } from './icons.tsx'
 import { CiIcon, ReviewIcon, StateIcon, Time, itemRef, textColor } from './format.tsx'
 import { Picker, type PickerOption } from './Picker.tsx'
 
@@ -809,7 +809,7 @@ export function Details({ id, aiTab, listItem, onItem, onClose, onHelp }: { id: 
             <ChecklistIcon /> Checks & reviews <span className="count">{pr.checks.length}</span>
           </button>
           <button type="button" role="tab" aria-selected={tab === 'ai'} onClick={() => setTab('ai')}>
-            <AgentIcon /> AI review
+            <AiReviewIcon /> AI review
           </button>
         </div>
       )}

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { AgentIcon, PlayIcon, SyncIcon, TrashIcon } from '@primer/octicons-react'
+import { PlayIcon, TrashIcon } from '@primer/octicons-react'
 import type { AiReviewSummary, Item } from '../../shared/types.ts'
 import { StateIcon, Time, itemRef } from './format.tsx'
+import { AiReviewIcon } from './icons.tsx'
 
 const RUNNING_POLL_MS = 3000
 const IDLE_POLL_MS = 30_000
@@ -39,11 +40,6 @@ export function useAiReviews() {
 }
 
 export const AI_STATUS_LABELS: Record<AiReviewSummary['status'], string> = { running: 'AI review running', done: 'AI review ready', failed: 'AI review failed' }
-
-export function AiStatusIcon({ status }: { status?: AiReviewSummary['status'] }) {
-  if (status === 'running') return <SyncIcon className="spin" />
-  return <AgentIcon className={status === 'failed' ? 'state-closed' : status === 'done' ? 'state-open' : undefined} />
-}
 
 export async function startAiReview(id: string) {
   await post(`/api/items/${encodeURIComponent(id)}/review`, {})
@@ -163,7 +159,7 @@ export function AiReviews({ items, viewer }: { items: Item[]; viewer: string | n
             {sorted.map((r) => (
               <tr key={r.id}>
                 <td title={r.error ?? undefined}>
-                  <AiStatusIcon status={r.status} /> {r.status === 'running' ? (r.pending === 'question' ? 'answering' : 'reviewing') : r.status}
+                  <AiReviewIcon status={r.status} /> {r.status === 'running' ? (r.pending === 'question' ? 'answering' : 'reviewing') : r.status}
                 </td>
                 <td>
                   {r.item && <StateIcon item={r.item} />} <a href={`/?item=${encodeURIComponent(r.id)}#ai`}>{r.item ? `${itemRef(r.item)} ${r.item.title}` : r.id}</a>

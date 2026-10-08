@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { CopyIcon, TerminalIcon } from '@primer/octicons-react'
+import { CopyIcon } from '@primer/octicons-react'
+import { CodingAgentIcon } from './icons.tsx'
 import type { CheckoutOptions, Item, LaunchRequest, LaunchResponse, Settings } from '../../shared/types.ts'
 import { itemRef } from './format.tsx'
 
@@ -133,7 +134,7 @@ export function LaunchDialog({ item, settings, onClose }: { item: Item; settings
             <CopyIcon /> Copy command
           </button>
           <button type="submit" className="primary" disabled={status.busy}>
-            <TerminalIcon /> Launch in terminal
+            <CodingAgentIcon /> Launch in terminal
           </button>
         </div>
       </form>

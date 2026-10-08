@@ -4,6 +4,7 @@ export interface Filters {
   read: '' | 'unread' | 'read'
   type: '' | 'issue' | 'pr' | 'advisory'
   state: ItemState[]
+  org: string[]
   repo: string[]
   author: string
   assignee: string
@@ -27,13 +28,14 @@ export interface Filters {
 
 export const NONE = 'none'
 const DAY = 86_400_000
-const LIST_KEYS = ['state', 'repo', 'label'] as const
+const LIST_KEYS = ['state', 'org', 'repo', 'label'] as const
 const NUMBER_KEYS = ['updatedWithin', 'staleFor'] as const
 
 export const DEFAULT_FILTERS: Filters = {
   read: 'unread',
   type: '',
   state: ['open'],
+  org: [],
   repo: [],
   author: '',
   assignee: '',
@@ -59,6 +61,7 @@ export const isUnread = (item: Item) => !item.readAt || item.updatedAt > item.re
 
 export type AuthorKind = 'member' | 'community' | 'bot'
 export const authorKind = (item: Item): AuthorKind => (item.bot ? 'bot' : item.member ? 'member' : 'community')
+export const orgOf = (item: Item) => item.repo.split('/')[0]
 export const isCommunity = (item: Item) => authorKind(item) === 'community'
 
 function inRange(iso: string | null, range: string) {
@@ -77,6 +80,7 @@ export function matches(item: Item, f: Filters, now = Date.now()): boolean {
     (!f.read || isUnread(item) === (f.read === 'unread')) &&
     (!f.type || item.type === f.type) &&
     (!f.state.length || f.state.includes(item.state)) &&
+    (!f.org.length || f.org.includes(orgOf(item))) &&
     (!f.repo.length || f.repo.includes(item.repo)) &&
     (!f.author || item.author === f.author) &&
     (!f.assignee ||

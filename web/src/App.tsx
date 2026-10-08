@@ -18,6 +18,7 @@ import {
   filterItems,
   authorKind,
   isUnread,
+  orgOf,
   parseFilters,
   serializeFilters,
   type Filters,
@@ -385,6 +386,7 @@ function Sidebar({
       <Single label="Read" value={filters.read} counts={facet('read', (i) => [isUnread(i) ? 'unread' : 'read'])} onChange={(v) => update({ read: v as Filters['read'] })} />
       <Single label="Type" anyLabel="All" value={filters.type} counts={facet('type', (i) => [i.type])} onChange={(v) => update({ type: v as Filters['type'] })} />
       <Multi label="State" open values={filters.state} counts={facet('state', (i) => [i.state])} onChange={(v) => update({ state: v as Filters['state'] })} />
+      <Multi label="Organization" values={filters.org} counts={facet('org', (i) => [orgOf(i)])} onChange={(org) => update({ org })} />
       <Multi label="Repository" values={filters.repo} counts={facet('repo', (i) => [i.repo])} onChange={(repo) => update({ repo })} />
       <Multi label="Labels (all of)" values={filters.label} counts={facet('label', (i) => i.labels.map((l) => l.name))} onChange={(label) => update({ label })} />
       <Single label="Author" value={filters.author} counts={facet('author', (i) => (i.author ? [i.author] : []))} onChange={(author) => update({ author })} />

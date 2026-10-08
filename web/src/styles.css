@@ -235,6 +235,7 @@ dialog.shortcuts dd { margin: 0; }
 
 /* overview */
 .layout.page { grid-template-columns: minmax(0, 1fr); }
+.layout.page.with-details { grid-template-columns: minmax(0, 1fr) var(--details-width, 480px); }
 .layout.page > header { flex-wrap: wrap; row-gap: 0.4rem; }
 .layout.page main { grid-row: 3; }
 .tabs { display: flex; gap: 0.25rem; }

@@ -53,7 +53,9 @@ async function post(url: string, body: unknown) {
   return json
 }
 
-function Suggestions({ items, viewer, reviewed }: { items: Item[]; viewer: string | null; reviewed: Set<string> }) {
+const reviewLink = (id: string) => `/reviews?item=${encodeURIComponent(id)}`
+
+function Suggestions({ items, viewer, reviewed, selected }: { items: Item[]; viewer: string | null; reviewed: Set<string>; selected: string | null }) {
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   if (!viewer) return null
@@ -95,9 +97,9 @@ function Suggestions({ items, viewer, reviewed }: { items: Item[]; viewer: strin
           </thead>
           <tbody>
             {pending.map((i) => (
-              <tr key={i.id}>
+              <tr key={i.id} aria-selected={i.id === selected}>
                 <td>
-                  <StateIcon item={i} /> <a href={`/?item=${encodeURIComponent(i.id)}#ai`}>{`${itemRef(i)} ${i.title}`}</a>
+                  <StateIcon item={i} /> <a href={reviewLink(i.id)}>{`${itemRef(i)} ${i.title}`}</a>
                 </td>
                 <td>{i.author ?? 'ghost'}</td>
                 <td>
@@ -117,7 +119,7 @@ function Suggestions({ items, viewer, reviewed }: { items: Item[]; viewer: strin
   )
 }
 
-export function AiReviews({ items, viewer }: { items: Item[]; viewer: string | null }) {
+export function AiReviews({ items, viewer, selected }: { items: Item[]; viewer: string | null; selected: string | null }) {
   const { reviews, error, setReviews, setError } = useAiReviews()
   const [busy, setBusy] = useState<string | null>(null)
   const prune = async (id: string) => {
@@ -157,12 +159,12 @@ export function AiReviews({ items, viewer }: { items: Item[]; viewer: string | n
           </thead>
           <tbody>
             {sorted.map((r) => (
-              <tr key={r.id}>
+              <tr key={r.id} aria-selected={r.id === selected}>
                 <td title={r.error ?? undefined}>
                   <AiReviewIcon status={r.status} /> {r.status === 'running' ? (r.pending === 'question' ? 'answering' : 'reviewing') : r.status}
                 </td>
                 <td>
-                  {r.item && <StateIcon item={r.item} />} <a href={`/?item=${encodeURIComponent(r.id)}#ai`}>{r.item ? `${itemRef(r.item)} ${r.item.title}` : r.id}</a>
+                  {r.item && <StateIcon item={r.item} />} <a href={reviewLink(r.id)}>{r.item ? `${itemRef(r.item)} ${r.item.title}` : r.id}</a>
                 </td>
                 <td>{r.turns}</td>
                 <td>{r.lastAt ? <Time iso={r.lastAt} /> : <span className="muted">none</span>}</td>
@@ -181,7 +183,7 @@ export function AiReviews({ items, viewer }: { items: Item[]; viewer: string | n
           </tbody>
         </table>
       )}
-      <Suggestions items={items} viewer={viewer} reviewed={new Set(reviews.map((r) => r.id))} />
+      <Suggestions items={items} viewer={viewer} reviewed={new Set(reviews.map((r) => r.id))} selected={selected} />
     </div>
   )
 }

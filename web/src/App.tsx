@@ -694,6 +694,11 @@ function Header({ data, sync, preset, setPreset, children }: Pick<Data, 'data' |
   )
 }
 
+function navigate(url: string) {
+  history.pushState(null, '', url)
+  dispatchEvent(new PopStateEvent('popstate'))
+}
+
 function useLocation() {
   const [url, setUrl] = useState(() => location.pathname + location.search)
   useEffect(() => {
@@ -703,8 +708,7 @@ function useLocation() {
       const a = (e.target as Element).closest?.('a')
       if (!a || a.target || a.hasAttribute('download') || a.origin !== location.origin) return
       e.preventDefault()
-      history.pushState(null, '', a.pathname + a.search + a.hash)
-      dispatchEvent(new PopStateEvent('popstate'))
+      navigate(a.pathname + a.search + a.hash)
     }
     addEventListener('popstate', onPop)
     addEventListener('click', onClick)
@@ -721,22 +725,42 @@ export function App() {
   const data = useData()
   const items = useMemo(() => (data.data?.items ?? EMPTY).filter((i) => i.type !== 'advisory'), [data.data])
   const page = data.data && !Object.keys(data.data.presets).length ? '/settings' : pathname
+  const reviewItem = page === '/reviews' ? new URLSearchParams(search).get('item') : null
+  const [helpOpen, setHelpOpen] = useState(false)
+  useEffect(() => {
+    if (!reviewItem) return
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && !document.querySelector('dialog[open]') && navigate('/reviews')
+    addEventListener('keydown', onKey)
+    return () => removeEventListener('keydown', onKey)
+  }, [reviewItem])
   if (!['/overview', '/team', '/reviews', '/settings'].includes(page)) return <Items {...data} />
   return (
-    <div className="layout page">
+    <div className={reviewItem ? 'layout page with-details' : 'layout page'}>
       <Header data={data.data} sync={data.sync} preset={data.preset} setPreset={data.setPreset} />
       {data.error && <p className="error" role="alert">Failed to load: {data.error}</p>}
       <main>
         {page === '/settings' ? (
           <Settings onSaved={data.reload} />
         ) : page === '/reviews' ? (
-          <AiReviews items={items} viewer={data.data?.viewer ?? null} />
+          <AiReviews items={items} viewer={data.data?.viewer ?? null} selected={reviewItem} />
         ) : page === '/team' ? (
           <Team items={items} search={search} />
         ) : (
           <Overview items={items} search={search} />
         )}
       </main>
+      {reviewItem && (
+        <Details
+          key={reviewItem}
+          id={reviewItem}
+          aiTab
+          listItem={items.find((i) => i.id === reviewItem)}
+          onItem={data.replaceItem}
+          onClose={() => navigate('/reviews')}
+          onHelp={() => setHelpOpen(true)}
+        />
+      )}
+      {helpOpen && <ShortcutsDialog onClose={() => setHelpOpen(false)} />}
     </div>
   )
 }

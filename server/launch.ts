@@ -18,12 +18,13 @@ export const DEFAULT_SETTINGS: Settings = {
   reposDir: '~/repos',
   superproject: '',
   reviewPrompt: 'Review the pull request {url}. Read the diff and the discussion with gh, and report problems ordered by severity. Do not push or comment.',
+  reviewCommand: '',
 }
 
 export const getSettings = (): Settings => ({ ...DEFAULT_SETTINGS, ...JSON.parse(getMeta('settings') ?? '{}') })
 export const setSettings = (settings: Settings) => setMeta('settings', JSON.stringify(settings))
 
-const expandHome = (path: string) => path.replace(/^~(?=\/|$)/, homedir())
+export const expandHome = (path: string) => path.replace(/^~(?=\/|$)/, homedir())
 const scriptsDir = fileURLToPath(new URL('launch/', dataDir))
 
 export const shellQuote = (s: string) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replaceAll("'", `'\\''`)}'`)
@@ -93,7 +94,7 @@ export async function checkoutOptions({ repo }: Item): Promise<CheckoutOptions> 
   return { dirs, selected: mappedDir ?? (dirs.length === 1 ? dirs[0] : null) }
 }
 
-async function resolveCheckout(item: Item, requested?: string) {
+export async function resolveCheckout(item: Item, requested?: string) {
   const { dirs, selected } = await checkoutOptions(item)
   if (requested && !dirs.includes(requested)) throw new HttpError(400, `${requested} is not a checkout of ${item.repo}`)
   if (!requested && !selected && dirs.length > 1) throw new HttpError(409, `Choose a checkout of ${item.repo}`, { dirs })
@@ -117,8 +118,10 @@ function claudeArgs(name: string, { prompt, worktree, remoteControl }: LaunchReq
   return [...args, '--', prompt].map(shellQuote).join(' ')
 }
 
+export const sessionName = (item: Item) => `${item.type}-${item.repo}-${item.type === 'advisory' ? item.id : item.number}`.replace(/[^\w.-]/g, '-')
+
 export function agentCommand(item: Item, req: LaunchRequest, dir: string, { agent, agentCommand }: Pick<Settings, 'agent' | 'agentCommand'>) {
-  const name = `${item.type}-${item.repo}-${item.type === 'advisory' ? item.id : item.number}`.replace(/[^\w.-]/g, '-')
+  const name = sessionName(item)
   const agentPart =
     agent === 'custom' ? agentCommand.replace(/\{(prompt|name)\}/g, (_, key: string) => shellQuote(key === 'prompt' ? req.prompt : name)) : claudeArgs(name, req)
   return { name, command: `cd ${shellQuote(dir)} && ${agentPart}` }

@@ -3,11 +3,12 @@ import { readFile } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { extname, join, normalize, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { AGENTS, TERMINALS, type ItemsResponse, type LaunchRequest, type SavedView, type Settings } from '../shared/types.ts'
+import { AGENTS, TERMINALS, type AiReviewRequest, type ItemsResponse, type LaunchRequest, type SavedView, type Settings } from '../shared/types.ts'
 import { allItems, dataDir, getMeta, markRead, setMeta } from './db.ts'
 import { fetchDetails, fetchRepoOptions, parseAction, renderMarkdown, runAction } from './items.ts'
 import { checkoutOptions, getSettings, launch, setSettings } from './launch.ts'
-import { HttpError, configDir, getPresets, getSyncStatus, isOrgMember, presetRepos, savePresets, startSync } from './sync.ts'
+import { getReview, listReviews, pruneReview, startReview } from './review.ts'
+import { HttpError, configDir, getPresets, getSyncStatus, isOrgMember, presetRepos, savePresets, startSync, viewerLogin } from './sync.ts'
 
 const PORT = Number(process.env.PORT ?? 3001)
 const dataPath = fileURLToPath(dataDir).replace(/\/$/, '')
@@ -59,6 +60,8 @@ function parseSettings(body: unknown): Settings {
   if (!AGENTS.includes(s.agent as Settings['agent'])) throw new HttpError(400, `Agent must be one of ${AGENTS.join(', ')}`)
   if (!isShortText(s.agentCommand, 1000)) throw new HttpError(400, 'Agent command must be at most 1000 characters')
   if (s.agent === 'custom' && !s.agentCommand.includes('{prompt}')) throw new HttpError(400, 'A custom agent command needs a {prompt} placeholder')
+  if (!isShortText(s.reviewCommand, 1000)) throw new HttpError(400, 'Review command must be at most 1000 characters')
+  if (s.reviewCommand.trim() && !s.reviewCommand.includes('{prompt}')) throw new HttpError(400, 'A review command needs a {prompt} placeholder')
   return {
     terminal: s.terminal as Settings['terminal'],
     agent: s.agent as Settings['agent'],
@@ -66,6 +69,7 @@ function parseSettings(body: unknown): Settings {
     reposDir: s.reposDir.trim(),
     superproject: s.superproject,
     reviewPrompt: s.reviewPrompt.trim(),
+    reviewCommand: s.reviewCommand.trim(),
   }
 }
 
@@ -80,6 +84,14 @@ function parseRead(body: unknown): { ids: string[]; read: boolean } {
   }
   if (typeof read !== 'boolean') throw new HttpError(400, 'read must be a boolean')
   return { ids, read }
+}
+
+function parseReviewRequest(body: unknown): AiReviewRequest {
+  const { question, fresh, dir } = (body ?? {}) as Record<string, unknown>
+  if (question !== undefined && (!isShortText(question, 5000) || !question.trim())) throw new HttpError(400, 'question must be a non-empty string of at most 5000 characters')
+  if (fresh !== undefined && typeof fresh !== 'boolean') throw new HttpError(400, 'fresh must be a boolean')
+  if (dir !== undefined && !isShortText(dir, 1000)) throw new HttpError(400, 'dir must be a path')
+  return { question: question?.trim(), fresh, dir }
 }
 
 function parseViews(body: unknown): SavedView[] {
@@ -140,7 +152,7 @@ async function serveStatic(pathname: string, res: ServerResponse): Promise<void>
 
 createServer(async (req, res) => {
   const { pathname, searchParams } = new URL(req.url ?? '/', 'http://localhost')
-  const itemRoute = pathname.match(/^\/api\/items\/([\w=-]{1,100})(\/actions)?$/)
+  const itemRoute = pathname.match(/^\/api\/items\/([\w=-]{1,100})(\/actions|\/review)?$/)
   const optionsRoute = pathname.match(/^\/api\/repos\/([^/]+)\/options$/)
   const optionsRepo = optionsRoute && decodeURIComponent(optionsRoute[1])
   try {
@@ -149,11 +161,17 @@ createServer(async (req, res) => {
     }
     if (pathname === '/api/items' && req.method === 'GET') {
       const items = allItems().map((i) => ({ ...i, member: isOrgMember(i.repo, i.author) }))
-      const body: ItemsResponse = { presets: presetRepos(), settings: getSettings(), items, sync: getSyncStatus() }
+      const body: ItemsResponse = { presets: presetRepos(), settings: getSettings(), items, sync: getSyncStatus(), viewer: await viewerLogin() }
       return sendJson(res, body)
     }
     if (itemRoute && !itemRoute[2] && req.method === 'GET') return sendJson(res, await fetchDetails(itemRoute[1]))
-    if (itemRoute?.[2] && req.method === 'POST') return sendJson(res, await runAction(itemRoute[1], parseAction(await readJson(req))))
+    if (itemRoute?.[2] === '/review' && req.method === 'GET') return sendJson(res, getReview(itemRoute[1]))
+    if (itemRoute?.[2] === '/review' && req.method === 'POST') {
+      const item = allItems().find((i) => i.id === itemRoute[1])
+      if (!item) throw new HttpError(404, 'Unknown item')
+      return sendJson(res, await startReview(item, parseReviewRequest(await readJson(req))))
+    }
+    if (itemRoute?.[2] === '/actions' && req.method === 'POST') return sendJson(res, await runAction(itemRoute[1], parseAction(await readJson(req))))
     if (optionsRepo && req.method === 'GET') return sendJson(res, await fetchRepoOptions(optionsRepo))
     if (pathname === '/api/markdown' && req.method === 'POST') return sendJson(res, await renderMarkdown(await readJson(req)))
     if (pathname === '/api/presets' && req.method === 'GET') return sendJson(res, getPresets())
@@ -173,6 +191,13 @@ createServer(async (req, res) => {
     if (pathname === '/api/read' && req.method === 'POST') {
       const { ids, read } = parseRead(await readJson(req))
       return sendJson(res, markRead(ids, read))
+    }
+    if (pathname === '/api/reviews' && req.method === 'GET') return sendJson(res, listReviews())
+    if (pathname === '/api/reviews/prune' && req.method === 'POST') {
+      const { id } = await readJson<{ id?: unknown }>(req)
+      if (!isShortText(id, 100)) throw new HttpError(400, 'id must be an item id')
+      await pruneReview(id)
+      return sendJson(res, listReviews())
     }
     if (pathname === '/api/sync' && req.method === 'GET') return sendJson(res, getSyncStatus())
     if (pathname === '/api/sync' && req.method === 'POST') return sendJson(res, startSync())

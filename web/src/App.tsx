@@ -24,6 +24,7 @@ import {
   type Filters,
 } from './filters.ts'
 import { LaunchDialog } from './LaunchDialog.tsx'
+import { AI_STATUS_LABELS, AiReviews, AiStatusIcon, startAiReview, useAiReviews } from './AiReviews.tsx'
 import { Details } from './Details.tsx'
 import { Overview } from './Overview.tsx'
 import { Settings } from './Settings.tsx'
@@ -61,6 +62,20 @@ const columns = col.columns([
         <TerminalIcon />
       </button>
     ),
+  }),
+  col.display({
+    id: 'ai',
+    header: () => <span className="sr-only">AI review</span>,
+    cell: (c) => {
+      const { id, type, aiReview } = c.row.original
+      if (type !== 'pr') return null
+      const label = aiReview ? `${AI_STATUS_LABELS[aiReview]}, open it` : 'Run AI review'
+      return (
+        <button type="button" className="icon-button" data-ai={id} title={label} aria-label={label}>
+          <AiStatusIcon status={aiReview} />
+        </button>
+      )
+    },
   }),
   col.display({
     id: 'read',
@@ -447,7 +462,12 @@ function useFiltersHidden() {
 function Items({ data, error, sync, replaceItem, setRead, preset, setPreset }: Data) {
   const [filtersHidden, toggleFilters] = useFiltersHidden()
   const [filters, update] = useUrlFilters()
-  const items = data?.items ?? EMPTY
+  const { reviews } = useAiReviews()
+  const items = useMemo(() => {
+    const status = new Map(reviews.map((r) => [r.id, r.status]))
+    const base = data?.items ?? EMPTY
+    return status.size ? base.map((i) => (status.has(i.id) ? { ...i, aiReview: status.get(i.id) } : i)) : base
+  }, [data, reviews])
   const filtered = useMemo(() => filterItems(items, filters), [items, filters])
   const sorting = useMemo(() => toSorting(filters.sort), [filters.sort])
   const onSortingChange = (updater: Updater<SortingState>) =>
@@ -476,6 +496,17 @@ function Items({ data, error, sync, replaceItem, setRead, preset, setPreset }: D
   })
 
   const [launchItem, setLaunchItem] = useState<Item | null>(null)
+  const [aiTabFor, setAiTabFor] = useState<string | null>(null)
+  const openAiTab = (id: string) => {
+    setAiTabFor(id)
+    update({ item: id })
+  }
+  // Starting needs no confirmation; on errors such as an ambiguous checkout the AI review tab offers a retry with a checkout picker.
+  const onAiClick = (id: string) => {
+    const item = items.find((i) => i.id === id)
+    if (item?.aiReview) return openAiTab(id)
+    startAiReview(id).catch(() => openAiTab(id))
+  }
   const [helpOpen, setHelpOpen] = useState(false)
   const openHelp = useCallback(() => setHelpOpen(true), [])
   const unreadIds = useMemo(() => filtered.filter(isUnread).map((i) => i.id), [filtered])
@@ -488,6 +519,8 @@ function Items({ data, error, sync, replaceItem, setRead, preset, setPreset }: D
   const onTableClick = (e: MouseEvent) => {
     const launchId = (e.target as HTMLElement).closest<HTMLElement>('[data-launch]')?.dataset.launch
     if (launchId) return setLaunchItem(items.find((i) => i.id === launchId) ?? null)
+    const aiId = (e.target as HTMLElement).closest<HTMLElement>('[data-ai]')?.dataset.ai
+    if (aiId) return onAiClick(aiId)
     const readId = (e.target as HTMLElement).closest<HTMLElement>('[data-read]')?.dataset.read
     if (readId) return toggleRead(readId)
     const target = (e.target as HTMLElement).closest<HTMLElement>('[data-filter]')
@@ -604,7 +637,7 @@ function Items({ data, error, sync, replaceItem, setRead, preset, setPreset }: D
         <ShortcutHints context={filters.item ? 'item' : 'list'} onHelp={openHelp} />
       </main>
       {filters.item && (
-        <Details key={filters.item} id={filters.item} listItem={items.find((i) => i.id === filters.item)} onItem={replaceItem} onClose={closeDetails} onHelp={openHelp} />
+        <Details key={filters.item} id={filters.item} aiTab={aiTabFor === filters.item} listItem={items.find((i) => i.id === filters.item)} onItem={replaceItem} onClose={closeDetails} onHelp={openHelp} />
       )}
       {helpOpen && <ShortcutsDialog onClose={() => setHelpOpen(false)} />}
       {launchItem && data && <LaunchDialog key={launchItem.id} item={launchItem} settings={data.settings} onClose={() => setLaunchItem(null)} />}
@@ -616,6 +649,7 @@ const PAGES = [
   ['/', 'Items'],
   ['/overview', 'Overview'],
   ['/team', 'Team'],
+  ['/reviews', 'AI reviews'],
   ['/settings', 'Settings'],
 ] as const
 
@@ -668,7 +702,7 @@ function useLocation() {
       const a = (e.target as Element).closest?.('a')
       if (!a || a.target || a.hasAttribute('download') || a.origin !== location.origin) return
       e.preventDefault()
-      history.pushState(null, '', a.pathname + a.search)
+      history.pushState(null, '', a.pathname + a.search + a.hash)
       dispatchEvent(new PopStateEvent('popstate'))
     }
     addEventListener('popstate', onPop)
@@ -686,7 +720,7 @@ export function App() {
   const data = useData()
   const items = useMemo(() => (data.data?.items ?? EMPTY).filter((i) => i.type !== 'advisory'), [data.data])
   const page = data.data && !Object.keys(data.data.presets).length ? '/settings' : pathname
-  if (!['/overview', '/team', '/settings'].includes(page)) return <Items {...data} />
+  if (!['/overview', '/team', '/reviews', '/settings'].includes(page)) return <Items {...data} />
   return (
     <div className="layout page">
       <Header data={data.data} sync={data.sync} preset={data.preset} setPreset={data.setPreset} />
@@ -694,6 +728,8 @@ export function App() {
       <main>
         {page === '/settings' ? (
           <Settings onSaved={data.reload} />
+        ) : page === '/reviews' ? (
+          <AiReviews items={items} viewer={data.data?.viewer ?? null} />
         ) : page === '/team' ? (
           <Team items={items} search={search} />
         ) : (

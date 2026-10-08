@@ -196,6 +196,13 @@ function LaunchForm({ onSaved }: { onSaved: () => void }) {
             <span className="muted">Runs in the checkout. {'{prompt}'} and {'{name}'} are replaced, already shell-quoted.</span>
           </label>
         )}
+        {settings.agent === 'custom' && (
+          <label>
+            Background review command
+            <input value={settings.reviewCommand} onChange={(e) => change({ reviewCommand: e.target.value })} placeholder="codex exec --sandbox read-only {prompt}" spellCheck={false} />
+            <span className="muted">Used for "AI review", its output is the review. Make it read-only: the agent reads untrusted PR content without supervision.</span>
+          </label>
+        )}
         <label>
           Repository folder
           <input value={settings.reposDir} onChange={(e) => change({ reposDir: e.target.value })} placeholder="~/repos" spellCheck={false} />

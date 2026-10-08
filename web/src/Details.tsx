@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type SyntheticEvent } from 'react'
-import type { Item, ItemAction, ItemDetails, MergeMethod, PrDetails, RepoOptions, Review, ReviewEvent } from '../../shared/types.ts'
+import type { AiReview, AiReviewRequest, AiReviewTurn, Item, ItemAction, ItemDetails, MergeMethod, PrDetails, RepoOptions, Review, ReviewEvent } from '../../shared/types.ts'
 import { mergeBlockers, mergeableOnceApproved, reviewState } from '../../shared/merge.ts'
 import {
+  AgentIcon,
   AlertIcon,
   CheckIcon,
   ChecklistIcon,
@@ -16,13 +17,17 @@ import {
   IssueClosedIcon,
   MilestoneIcon,
   PeopleIcon,
+  PlayIcon,
   QuestionIcon,
   SkipIcon,
+  SyncIcon,
+  TrashIcon,
   TagIcon,
   TriangleDownIcon,
   XIcon,
   type Icon,
 } from '@primer/octicons-react'
+import { notifyReviewsChanged } from './AiReviews.tsx'
 import { CiIcon, ReviewIcon, StateIcon, Time, itemRef, textColor } from './format.tsx'
 import { Picker, type PickerOption } from './Picker.tsx'
 
@@ -94,6 +99,8 @@ const typeLabel = (i: Item) => (i.type === 'pr' ? (i.draft ? 'Draft PR' : 'PR') 
 
 const latestReviews = (reviews: Review[]) =>
   [...new Map(reviews.toSorted((a, b) => (a.submittedAt ?? '').localeCompare(b.submittedAt ?? '')).map((r) => [r.author, r])).values()]
+
+const isSubmitKey = (e: KeyboardEvent) => e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing
 
 const None = () => <span className="muted">None</span>
 
@@ -295,6 +302,149 @@ function Composer({ repo, value, onChange }: { repo: string; value: string; onCh
   )
 }
 
+const TURN_LABELS: Record<AiReviewTurn['kind'], string> = { review: 'Review', rerun: 'Rerun', question: 'Answer' }
+const shortSha = (sha: string) => sha.slice(0, 7)
+
+function AiTurn({ turn, repo }: { turn: AiReviewTurn; repo: string }) {
+  const [html, setHtml] = useState<string | null>(null)
+  useEffect(() => {
+    let current = true
+    renderMarkdown(turn.result, repo).then(
+      (h) => current && setHtml(h),
+      () => current && setHtml(''),
+    )
+    return () => void (current = false)
+  }, [turn.result, repo])
+  return (
+    <article className="comment">
+      <div className="comment-head">
+        <strong>{TURN_LABELS[turn.kind]}</strong> of <code>{shortSha(turn.headSha)}</code> <Time iso={turn.at} />
+        {turn.kind === 'question' && <blockquote>{turn.prompt}</blockquote>}
+      </div>
+      {html === null ? <p className="muted">Rendering…</p> : html ? <HtmlFrame title={`AI ${TURN_LABELS[turn.kind]}`} html={html} /> : <pre>{turn.result}</pre>}
+    </article>
+  )
+}
+
+function AiReviewPanel({ item, pr }: { item: Item; pr: PrDetails }) {
+  const [review, setReview] = useState<AiReview | null>()
+  const [question, setQuestion] = useState('')
+  const [dirs, setDirs] = useState<string[]>([])
+  const [dir, setDir] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const url = `/api/items/${encodeURIComponent(item.id)}/review`
+  const running = review?.status === 'running'
+
+  const load = async () => {
+    const res = await fetch(url)
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(json.error ?? `${res.status} ${res.statusText}`)
+    setReview(json)
+  }
+  useEffect(() => void load().catch((e) => setError((e as Error).message)), [url])
+  useEffect(() => {
+    if (!running) return
+    const timer = setInterval(() => load().catch(() => {}), 3000)
+    return () => clearInterval(timer)
+  }, [running, url])
+
+  const start = async (body: AiReviewRequest) => {
+    setError(null)
+    const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...body, ...(dir && { dir }) }) })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      if (json.dirs) setDirs(json.dirs)
+      return setError(json.error ?? `${res.status} ${res.statusText}`)
+    }
+    setReview(json)
+    setDirs([])
+    if (body.question) setQuestion('')
+    notifyReviewsChanged()
+  }
+
+  const prune = async () => {
+    setError(null)
+    const res = await fetch('/api/reviews/prune', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: item.id }) })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) return setError(json.error ?? `${res.status} ${res.statusText}`)
+    setReview(null)
+    notifyReviewsChanged()
+  }
+
+  if (review === undefined) return error ? <p className="error">{error}</p> : <p className="muted">Loading…</p>
+  const reviewed = !!review?.turns.length
+  const outdated = reviewed && review.headSha !== pr.headOid
+  const ask = () => question.trim() && start({ question: question.trim() })
+  return (
+    <>
+      <div className="row">
+        {!reviewed ? (
+          <button type="button" className="primary" disabled={running || (dirs.length > 0 && !dir)} onClick={() => start({})}>
+            <PlayIcon /> Run review
+          </button>
+        ) : (
+          <>
+            <button type="button" className={outdated ? 'primary' : undefined} disabled={running} onClick={() => start({})}>
+              <SyncIcon /> {outdated ? 'Rerun with new changes' : 'Rerun'}
+            </button>
+            <button type="button" disabled={running} onClick={() => start({ fresh: true })}>
+              <PlayIcon /> Fresh review
+            </button>
+          </>
+        )}
+        {review && (
+          <button type="button" disabled={running} onClick={prune} title="Delete the review and remove its worktree">
+            <TrashIcon /> Prune
+          </button>
+        )}
+        {running && <span className="muted">{review.pending === 'question' ? 'Thinking…' : 'Reviewing in the background…'}</span>}
+      </div>
+      {dirs.length > 0 && (
+        <label>
+          Checkout
+          <select value={dir} onChange={(e) => setDir(e.target.value)}>
+            <option value="" disabled>
+              Choose a checkout of {item.repo}
+            </option>
+            {dirs.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {outdated && !running && (
+        <p className="warn">
+          <AlertIcon /> Reviewed <code>{shortSha(review.headSha)}</code>, the PR is now at <code>{shortSha(pr.headOid)}</code>
+        </p>
+      )}
+      {(error || review?.status === 'failed') && (
+        <p className="error" role="alert">
+          {error ?? review?.error}
+        </p>
+      )}
+      {!review && !running && <p className="muted">Runs the review prompt from Settings on a separate checkout of the PR head.</p>}
+      {review?.turns.map((t, i) => <AiTurn key={`${i}-${t.at}`} turn={t} repo={item.repo} />)}
+      {reviewed && (
+        <form className="composer" onSubmit={(e) => (e.preventDefault(), ask())}>
+          <textarea
+            rows={2}
+            value={question}
+            onChange={(e) => setQuestion(e.target.value)}
+            onKeyDown={(e) => isSubmitKey(e) && (e.preventDefault(), ask())}
+            placeholder="Ask about the review, ⌘Enter to send"
+            aria-label="Question about the review"
+          />
+          <button type="submit" disabled={running || !question.trim()}>
+            <CommentIcon /> Ask
+          </button>
+        </form>
+      )}
+    </>
+  )
+}
+
 function ForceMergeDialog({ details, onConfirm, onClose }: { details: ItemDetails; onConfirm: () => void; onClose: () => void }) {
   const ref = `${details.item.repo}#${details.item.number}`
   const [typed, setTyped] = useState('')
@@ -374,8 +524,8 @@ function ReviewDialog({ details, method, run, onClose }: { details: ItemDetails;
             value={comment}
             disabled={approved}
             onChange={(e) => setComment(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && (e.preventDefault(), submit(canMerge))}
-            placeholder={event === 'APPROVE' ? 'Optional, Enter to submit, Shift+Enter for a new line' : 'Required, Enter to submit, Shift+Enter for a new line'}
+            onKeyDown={(e) => isSubmitKey(e) && (e.preventDefault(), submit(canMerge))}
+            placeholder={event === 'APPROVE' ? 'Optional, ⌘Enter to submit' : 'Required, ⌘Enter to submit'}
             autoFocus
           />
         </label>
@@ -530,10 +680,10 @@ function Footer({ details, run }: { details: ItemDetails; run: (a: ItemAction) =
   )
 }
 
-export function Details({ id, listItem, onItem, onClose, onHelp }: { id: string; listItem?: Item; onItem: (item: Item) => void; onClose: () => void; onHelp: () => void }) {
+export function Details({ id, aiTab, listItem, onItem, onClose, onHelp }: { id: string; aiTab?: boolean; listItem?: Item; onItem: (item: Item) => void; onClose: () => void; onHelp: () => void }) {
   const [details, setDetails] = useState<ItemDetails | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [tab, setTab] = useState<'conversation' | 'checks'>('conversation')
+  const [tab, setTab] = useState<'conversation' | 'checks' | 'ai'>(() => (aiTab || location.hash === '#ai' ? 'ai' : 'conversation'))
   const headingRef = useRef<HTMLHeadingElement>(null)
   const url = `/api/items/${encodeURIComponent(id)}`
 
@@ -658,6 +808,9 @@ export function Details({ id, listItem, onItem, onClose, onHelp }: { id: string;
           <button type="button" role="tab" aria-selected={tab === 'checks'} onClick={() => setTab('checks')}>
             <ChecklistIcon /> Checks & reviews <span className="count">{pr.checks.length}</span>
           </button>
+          <button type="button" role="tab" aria-selected={tab === 'ai'} onClick={() => setTab('ai')}>
+            <AgentIcon /> AI review
+          </button>
         </div>
       )}
       <div className="details-body" role={pr ? 'tabpanel' : undefined}>
@@ -667,7 +820,7 @@ export function Details({ id, listItem, onItem, onClose, onHelp }: { id: string;
           </p>
         )}
         {!details && !error && <p className="muted">Loading details…</p>}
-        {details && (pr && tab === 'checks' ? <Checks pr={pr} /> : <Conversation details={details} />)}
+        {details && (pr && tab === 'checks' ? <Checks pr={pr} /> : pr && item && tab === 'ai' ? <AiReviewPanel item={item} pr={pr} /> : <Conversation details={details} />)}
       </div>
       {details && item?.type !== 'advisory' && <Footer details={details} run={run} />}
     </aside>

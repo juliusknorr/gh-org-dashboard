@@ -72,3 +72,16 @@ checkouts match, the dialog asks which one to use and stores it as the default i
 cmux only accepts commands from processes started inside cmux by default. Either start the server from a
 cmux terminal, or set `automation.socketControlMode` to `password` in `~/.config/cmux/cmux.json` and put
 the password in `CMUX_SOCKET_PASSWORD`.
+
+## AI review
+
+The "AI review" tab of a PR runs the review prompt in the background on a detached worktree of the PR head
+under `data/reviews/`, and shows the result when it is done. "Rerun" reviews what changed since the last run,
+"Fresh review" starts over, and questions refine the review. Claude Code resumes its session and only gets
+read-only tools (`--permission-mode dontAsk`). A custom agent uses the background review command from Settings,
+gets earlier turns in its prompt, and must be made read-only by that command.
+
+Next to the terminal button, every PR row has an AI review button: it starts a review, spins while it runs,
+turns green when it's ready or red when it failed, and then opens the tab. The "AI reviews" page lists all
+reviews, suggests open PRs that request your review, and "Prune" (there or in the tab) deletes a review
+together with its worktree.

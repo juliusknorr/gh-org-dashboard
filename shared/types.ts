@@ -29,6 +29,7 @@ export interface Item {
   triagedAt: string | null
   triagedBy: string | null
   readAt?: string | null
+  aiReview?: AiReview['status']
 }
 
 export interface SyncStatus {
@@ -47,6 +48,7 @@ export interface Settings {
   reposDir: string
   superproject: string
   reviewPrompt: string
+  reviewCommand: string
 }
 
 export interface ItemsResponse {
@@ -54,6 +56,7 @@ export interface ItemsResponse {
   settings: Settings
   items: Item[]
   sync: SyncStatus
+  viewer: string | null
 }
 
 export interface SavedView {
@@ -68,6 +71,41 @@ export interface LaunchRequest {
   worktree: boolean
   remoteControl: boolean
   dryRun?: boolean
+  dir?: string
+}
+
+export interface AiReviewTurn {
+  kind: 'review' | 'rerun' | 'question'
+  prompt: string
+  result: string
+  headSha: string
+  at: string
+}
+
+export interface AiReview {
+  status: 'running' | 'done' | 'failed'
+  headSha: string
+  sessionId: string | null
+  worktree: string
+  turns: AiReviewTurn[]
+  pending: AiReviewTurn['kind'] | null
+  error: string | null
+}
+
+export interface AiReviewSummary {
+  id: string
+  item: Item | null
+  status: AiReview['status']
+  pending: AiReview['pending']
+  turns: number
+  lastAt: string | null
+  worktree: boolean
+  error: string | null
+}
+
+export interface AiReviewRequest {
+  question?: string
+  fresh?: boolean
   dir?: string
 }
 

@@ -12,7 +12,7 @@
   --warn: #9a6700;
   --series-1: #2a78d6;
   --series-2: #eb6834;
-  --cols: 32px 28px 28px 180px minmax(280px, 1fr) 150px 120px 200px 56px 56px 100px 100px;
+  --cols: 32px 32px 28px 28px 180px minmax(280px, 1fr) 150px 120px 200px 56px 56px 100px 100px;
   font: 14px/1.4 system-ui, sans-serif;
 }
 @media (prefers-color-scheme: dark) {

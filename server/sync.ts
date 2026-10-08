@@ -227,6 +227,13 @@ export async function loadOrgMembers(): Promise<void> {
   setMeta('members', JSON.stringify(Object.fromEntries(owners.map((o, i) => [o, lists[i]]))))
 }
 
+let viewer: Promise<string | null> | null = null
+export const viewerLogin = () =>
+  (viewer ??= graphql<{ viewer: { login: string } }>('query { viewer { login } }', {}).then(
+    (d) => d.viewer.login,
+    () => (viewer = null),
+  ))
+
 export const ensureOrgMembers = () => (members.size ? Promise.resolve() : loadOrgMembers())
 
 function triage(repo: string, node: RawNode): { triagedAt: string | null; triagedBy: string | null } {

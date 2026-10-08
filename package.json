@@ -1,6 +1,7 @@
 {
   "name": "gh-org-dashboard",
   "private": true,
+  "license": "AGPL-3.0-or-later",
   "type": "module",
   "scripts": {
     "server": "node --env-file-if-exists=.env --watch server/index.ts",

@@ -144,3 +144,11 @@ export function countBy(items: Item[], values: (item: Item) => (string | null)[]
   }
   return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
 }
+
+export function findByUrl(items: Item[], text: string) {
+  const m = text.trim().match(/^https:\/\/github\.com\/([^/]+\/[^/]+)\/(?:pull|issues|security\/advisories)\/([^/?#]+)/i)
+  if (!m) return undefined
+  const repo = m[1].toLowerCase()
+  const ref = m[2].toLowerCase()
+  return items.find((i) => i.repo.toLowerCase() === repo && (i.type === 'advisory' ? i.id.toLowerCase() === ref : String(i.number) === ref))
+}

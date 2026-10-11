@@ -16,6 +16,7 @@ import {
   NONE,
   countBy,
   filterItems,
+  findByUrl,
   authorKind,
   isUnread,
   orgOf,
@@ -727,6 +728,18 @@ export function App() {
   const page = data.data && !Object.keys(data.data.presets).length ? '/settings' : pathname
   const reviewItem = page === '/reviews' ? new URLSearchParams(search).get('item') : null
   const [helpOpen, setHelpOpen] = useState(false)
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      if (e.target instanceof Element && e.target.closest('textarea, [contenteditable], input:not([type="search"])')) return
+      const item = findByUrl(data.data?.items ?? EMPTY, e.clipboardData?.getData('text') ?? '')
+      if (!item) return
+      e.preventDefault()
+      const filters = location.pathname === '/' ? parseFilters(location.search) : DEFAULT_FILTERS
+      navigate(`/?${serializeFilters({ ...filters, item: item.id })}`)
+    }
+    addEventListener('paste', onPaste)
+    return () => removeEventListener('paste', onPaste)
+  }, [data.data])
   useEffect(() => {
     if (!reviewItem) return
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && !document.querySelector('dialog[open]') && navigate('/reviews')

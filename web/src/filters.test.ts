@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { Item } from '../../shared/types.ts'
-import { authorKind, DEFAULT_FILTERS, countBy, filterItems, parseFilters, serializeFilters } from './filters.ts'
+import { authorKind, DEFAULT_FILTERS, countBy, filterItems, findByUrl, parseFilters, serializeFilters } from './filters.ts'
 
 const now = Date.parse('2026-10-01T00:00:00Z')
 const daysAgo = (n: number) => new Date(now - n * 86_400_000).toISOString()
@@ -108,4 +108,15 @@ test('authorKind separates members, community and bots', () => {
   assert.equal(authorKind(item({})), 'member')
   assert.equal(authorKind(item({ member: false })), 'community')
   assert.equal(authorKind(item({ member: false, bot: true })), 'bot')
+})
+
+test('findByUrl matches pull, issue and advisory links', () => {
+  const pr = item({ id: 'pr', type: 'pr', repo: 'nextcloud/server', number: 12 })
+  const adv = item({ id: 'GHSA-abcd-efgh-ijkl', type: 'advisory', repo: 'nextcloud/server', number: 0 })
+  const items = [item({ repo: 'nextcloud/server', number: 1 }), pr, adv]
+  assert.equal(findByUrl(items, 'https://github.com/Nextcloud/server/pull/12/files#diff-1'), pr)
+  assert.equal(findByUrl(items, ' https://github.com/nextcloud/server/issues/12 '), pr)
+  assert.equal(findByUrl(items, 'https://github.com/nextcloud/server/security/advisories/GHSA-abcd-efgh-ijkl'), adv)
+  assert.equal(findByUrl(items, 'https://github.com/nextcloud/server/pull/123'), undefined)
+  assert.equal(findByUrl(items, 'see https://github.com/nextcloud/server/pull/12'), undefined)
 })

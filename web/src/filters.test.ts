@@ -54,6 +54,7 @@ test('filters', () => {
   assert.deepEqual(numbers({ assignee: 'carol' }), [3])
   assert.deepEqual(numbers({ label: ['bug', 'stale'] }), [4])
   assert.deepEqual(numbers({ reviewer: 'dave' }), [3])
+  assert.deepEqual(numbers({ state: [], reviewer: 'none' }), [2])
   assert.deepEqual(numbers({ draft: 'no', type: 'pr' }), [])
   assert.deepEqual(numbers({ state: [], ci: 'SUCCESS' }), [2])
   assert.deepEqual(numbers({ state: [], review: 'none', type: 'pr' }), [3])

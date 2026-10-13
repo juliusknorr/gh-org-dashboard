@@ -412,7 +412,7 @@ function Sidebar({
       <Single label="Author" value={filters.author} counts={facet('author', (i) => (i.author ? [i.author] : []))} onChange={(author) => update({ author })} />
       <Single label="Author type" value={filters.who} counts={facet('who', (i) => [authorKind(i)])} onChange={(v) => update({ who: v as Filters['who'] })} />
       <Single label="Assignee" value={filters.assignee} counts={facet('assignee', (i) => (i.assignees.length ? i.assignees : [NONE]))} onChange={(assignee) => update({ assignee })} />
-      <Single label="Review requested" value={filters.reviewer} counts={facet('reviewer', (i) => i.reviewRequests)} onChange={(reviewer) => update({ reviewer })} />
+      <Single label="Review requested" value={filters.reviewer} counts={facet('reviewer', (i) => (i.type !== 'pr' ? [] : i.reviewRequests.length ? i.reviewRequests : [NONE]))} onChange={(reviewer) => update({ reviewer })} />
       <Single label="First review" value={filters.firstReview} counts={facet('firstReview', prOnly((i) => (i.firstReviewAt ? 'yes' : 'no')))} onChange={(v) => update({ firstReview: v as Filters['firstReview'] })} />
       <Single label="Triaged" value={filters.triaged} counts={facet('triaged', issueOnly((i) => (i.triagedAt ? 'yes' : 'no')))} onChange={(v) => update({ triaged: v as Filters['triaged'] })} />
       <Single label="Triaged by" value={filters.triagedBy} counts={facet('triagedBy', (i) => (i.triagedBy ? [i.triagedBy] : []))} onChange={(triagedBy) => update({ triagedBy })} />

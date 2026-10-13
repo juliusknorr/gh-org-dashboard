@@ -86,7 +86,8 @@ export function matches(item: Item, f: Filters, now = Date.now()): boolean {
     (!f.assignee ||
       (f.assignee === NONE ? item.assignees.length === 0 : item.assignees.includes(f.assignee))) &&
     f.label.every((name) => item.labels.some((l) => l.name === name)) &&
-    (!f.reviewer || item.reviewRequests.includes(f.reviewer)) &&
+    (!f.reviewer ||
+      (f.reviewer === NONE ? isPr && item.reviewRequests.length === 0 : item.reviewRequests.includes(f.reviewer))) &&
     (!f.draft || (isPr && item.draft === (f.draft === 'yes'))) &&
     (!f.review || (isPr && (item.reviewDecision ?? NONE) === f.review)) &&
     (!f.ci || (isPr && (item.ci ?? NONE) === f.ci)) &&

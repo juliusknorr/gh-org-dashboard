@@ -3,7 +3,7 @@ import { isCommunity } from './filters.ts'
 
 export const DAY = 86_400_000
 export const WEEK = 7 * DAY
-export const RANGES = [4, 12, 26, 52]
+export const RANGES = [1, 4, 12, 26, 52]
 const STALE_DAYS = 30
 const TOP = 10
 

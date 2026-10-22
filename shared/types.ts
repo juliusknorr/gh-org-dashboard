@@ -51,8 +51,20 @@ export interface Settings {
   reviewCommand: string
 }
 
+export interface Preset {
+  sources: string[]
+  core: string[]
+}
+
+export interface Activity {
+  reviewed: number
+  commented: number
+  reviews: { url: string; at: string }[]
+}
+
 export interface ItemsResponse {
   presets: Record<string, string[]>
+  core: Record<string, string[]>
   settings: Settings
   items: Item[]
   sync: SyncStatus

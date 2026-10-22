@@ -41,17 +41,19 @@ The Settings page opens on first start to set up your presets. It needs `gh` to 
 ## Configuration
 
 Teams are defined as presets on the Settings page. They are stored in the untracked `presets.json`;
-see `presets.example.json` for the format. Each entry is either an org or a single `owner/repo`:
+see `presets.example.json` for the format. Each source is either an org or a single `owner/repo`,
+and `core` lists the GitHub handles of the core team:
 
 ```json
 {
-  "web": ["my-org"],
-  "mobile": ["my-org/ios-app", "other-org/android-app"]
+  "web": { "sources": ["my-org"], "core": ["octocat", "hubot"] },
+  "mobile": { "sources": ["my-org/ios-app", "other-org/android-app"], "core": [] }
 }
 ```
 
 All presets are synced into one database, and the header switches between them.
-Authors count as members when they belong to the org that owns the repo.
+Authors in the core team count as members, everyone else as community. Without a core team, authors
+count as members when they belong to the org that owns the repo. Triage still uses org membership.
 
 The Settings page also holds the coding agent options: the terminal (iTerm or cmux), the agent
 (Claude Code or a custom command such as `codex {prompt}`), the folder with your checkouts, an optional

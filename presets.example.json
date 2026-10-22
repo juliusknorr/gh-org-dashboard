@@ -1,4 +1,4 @@
 {
-  "web": ["my-org"],
-  "mobile": ["my-org/ios-app", "other-org/android-app"]
+  "web": { "sources": ["my-org"], "core": ["octocat", "hubot"] },
+  "mobile": { "sources": ["my-org/ios-app", "other-org/android-app"], "core": [] }
 }

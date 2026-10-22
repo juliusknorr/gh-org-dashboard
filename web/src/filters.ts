@@ -21,6 +21,7 @@ export interface Filters {
   firstReview: '' | 'yes' | 'no'
   triaged: '' | 'yes' | 'no'
   triagedBy: string
+  triagedAt: string
   q: string
   sort: string
   item: string
@@ -52,6 +53,7 @@ export const DEFAULT_FILTERS: Filters = {
   firstReview: '',
   triaged: '',
   triagedBy: '',
+  triagedAt: '',
   q: '',
   sort: '-updated',
   item: '',
@@ -99,6 +101,7 @@ export function matches(item: Item, f: Filters, now = Date.now()): boolean {
     (!f.firstReview || (isPr && !!item.firstReviewAt === (f.firstReview === 'yes'))) &&
     (!f.triaged || (item.type === 'issue' && !!item.triagedAt === (f.triaged === 'yes'))) &&
     (!f.triagedBy || item.triagedBy === f.triagedBy) &&
+    inRange(item.triagedAt, f.triagedAt) &&
     (!q || `${item.title} ${item.repo}#${item.number}`.toLowerCase().includes(q))
   )
 }

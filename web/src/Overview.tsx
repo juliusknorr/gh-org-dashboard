@@ -215,7 +215,7 @@ export function Overview({ items, search }: { items: Item[]; search: string }) {
       <nav className="ov-range" aria-label="Range">
         {RANGES.map((n) => (
           <a key={n} href={`/overview?weeks=${n}`} aria-current={n === weeks ? 'true' : undefined}>
-            {n} weeks
+            {n === 1 ? '1 week' : `${n} weeks`}
           </a>
         ))}
         <span className="muted">since {isoDate(o.from)}</span>

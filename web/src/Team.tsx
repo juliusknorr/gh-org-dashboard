@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { MarkGithubIcon } from '@primer/octicons-react'
-import type { Item } from '../../shared/types.ts'
+import type { Activity, Item } from '../../shared/types.ts'
 import { DAY, RANGES, isoDate } from './overview.ts'
-import { STALE_DAYS, members, rangeStart, summary, team, type Metric, type Summary, type Team as TeamData } from './team.ts'
+import { GROUPS, STALE_DAYS, members, rangeStart, reviewsPerWeek, summary, team, type Group, type Metric, type Summary, type Team as TeamData } from './team.ts'
 import { StateIcon, Time, itemRef } from './format.tsx'
+import { orgOf } from './filters.ts'
 
 const HOUR = 3_600_000
 const duration = (ms: number) => (ms < 2 * DAY ? `${Math.round(ms / HOUR)}h` : `${Math.round(ms / DAY)}d`)
@@ -30,14 +31,36 @@ const DurationCard = ({ label, noun, value, metric }: { label: string; noun: str
   </div>
 )
 
-type Cell = { value: number | null; href: string; time?: boolean }
+function useActivity(preset: string | null, org: string, logins: string[], from: number) {
+  const [state, setState] = useState<{ key: string; data: Record<string, Activity> | null; error: string | null }>({ key: '', data: null, error: null })
+  const key = preset && logins.length ? `/api/activity?${new URLSearchParams({ preset, org, logins: logins.join(','), from: isoDate(from) })}` : ''
+  useEffect(() => {
+    if (!key) return
+    let current = true
+    fetch(key)
+      .then(async (res) => (res.ok ? res.json() : Promise.reject(new Error((await res.json().catch(() => ({}))).error ?? `${res.status} ${res.statusText}`))))
+      .then(
+        (data) => current && setState({ key, data, error: null }),
+        (err) => current && setState({ key, data: null, error: String(err) }),
+      )
+    return () => {
+      current = false
+    }
+  }, [key])
+  return state.key === key ? state : { data: null, error: null }
+}
+
+type Row = Summary & { activity?: Activity }
+type Cell = { value: number | null; href?: string; time?: boolean }
 const count = (m: Metric): Cell => ({ value: m.count, href: m.href })
-const COLUMNS: [key: string, label: string, cell: (s: Summary) => Cell][] = [
+const COLUMNS: [key: string, label: string, cell: (s: Row) => Cell][] = [
   ['openPrs', 'Open PRs', (s) => count(s.openPrs)],
   ['openIssues', 'Open issues', (s) => count(s.openIssues)],
-  ['reviewRequests', 'Review requests', (s) => count(s.reviewRequests)],
+  ['reviewRequests', 'Pending reviews', (s) => count(s.reviewRequests)],
   ['assigned', 'Assigned open', (s) => count(s.assigned)],
   ['merged', 'PRs merged', (s) => count(s.merged)],
+  ['reviewed', 'PRs reviewed', (s) => ({ value: s.activity?.reviewed ?? null })],
+  ['commented', 'Commented on', (s) => ({ value: s.activity?.commented ?? null })],
   ['issuesClosed', 'Issues closed', (s) => count(s.issuesClosed)],
   ['review', 'Median to first review', (s) => ({ value: s.review.median, href: s.review.reviewed.href, time: true })],
   ['triaged', 'Issues triaged', (s) => count(s.triage.triaged)],
@@ -45,12 +68,12 @@ const COLUMNS: [key: string, label: string, cell: (s: Summary) => Cell][] = [
   ['untriaged', 'Assigned untriaged', (s) => count(s.untriaged)],
 ]
 
-function Members({ rows, search }: { rows: Summary[]; search: string }) {
+function Members({ rows, search }: { rows: Row[]; search: string }) {
   const sort = new URLSearchParams(search).get('sort') ?? ''
   const key = sort.replace(/^-/, '')
   const desc = sort.startsWith('-')
   const column = COLUMNS.find(([k]) => k === key)
-  const value = (s: Summary) => column?.[2](s).value ?? null
+  const value = (s: Row) => column?.[2](s).value ?? null
   const sorted = column
     ? rows.toSorted((a, b) => {
         const [x, y] = [value(a), value(b)]
@@ -84,7 +107,7 @@ function Members({ rows, search }: { rows: Summary[]; search: string }) {
                 const c = cell(s)
                 return (
                   <td key={k}>
-                    {c.value === null ? <span className="muted">–</span> : <a href={c.href}>{c.time ? duration(c.value) : c.value}</a>}
+                    {c.value === null ? <span className="muted">–</span> : c.href ? <a href={c.href}>{c.time ? duration(c.value) : c.value}</a> : c.value}
                   </td>
                 )
               })}
@@ -103,7 +126,14 @@ const Card = ({ label, metric }: { label: string; metric: Metric }) => (
   </a>
 )
 
-function ItemList({ title, items, more, date }: { title: string; items: Item[]; more?: Metric; date: 'createdAt' | 'updatedAt' }) {
+const ActivityCard = ({ label, value }: { label: string; value: number | undefined }) => (
+  <div className="team-card" title="From GitHub contributions, limited to this preset's repositories">
+    <span className="team-value">{value ?? '–'}</span>
+    <span className="team-label">{label}</span>
+  </div>
+)
+
+function ItemList({ title, items, more, date }: { title: string; items: Item[]; more?: Metric; date: 'createdAt' | 'updatedAt' | 'closedAt' }) {
   return (
     <section className="team-panel">
       <h3>
@@ -121,7 +151,7 @@ function ItemList({ title, items, more, date }: { title: string; items: Item[]; 
                 {i.title}
               </a>
               <span className="muted">
-                <Time iso={i[date]} />
+                <Time iso={i[date]!} />
               </span>
             </li>
           ))}
@@ -133,36 +163,40 @@ function ItemList({ title, items, more, date }: { title: string; items: Item[]; 
   )
 }
 
-function WeekChart({ series }: { series: TeamData['series'] }) {
+type Bar = { count: number; href?: string }
+type Week = { start: number } & Record<string, Bar | number>
+
+function WeekChart({ title, keys, series }: { title: string; keys: [key: string, label: string][]; series: Week[] }) {
   const [hover, setHover] = useState<number | null>(null)
-  const max = Math.max(1, ...series.flatMap((w) => [w.opened.count, w.merged.count]))
-  const sum = (key: 'opened' | 'merged') => series.reduce((n, w) => n + w[key].count, 0)
+  const get = (w: Week, key: string) => w[key] as Bar
+  const max = Math.max(1, ...series.flatMap((w) => keys.map(([k]) => get(w, k).count)))
+  const sum = (key: string) => series.reduce((n, w) => n + get(w, key).count, 0)
   const week = hover === null ? null : series[hover]
   const labelEvery = Math.ceil(series.length / 6)
-  const bar = (m: Metric, kind: 'opened' | 'merged', start: number) => (
-    <a href={m.href} className={`team-bar team-${kind}`} aria-label={`${m.count} ${kind}, week of ${isoDate(start)}`}>
-      <span style={{ height: `${(m.count / max) * 100}%` }} />
-    </a>
-  )
+  const counts = (count: (key: string) => number) =>
+    keys.map(([k, label], n) => (
+      <span key={k}>
+        {n > 0 && ', '}
+        <b>{count(k)}</b> {label.toLowerCase()}
+      </span>
+    ))
+  const value = (m: Bar) => (m.href ? <a href={m.href}>{m.count}</a> : m.count)
   return (
     <section className="team-panel team-wide">
-      <h3>Pull requests per week</h3>
+      <h3>{title}</h3>
       <div className="team-legend">
-        <span>
-          <i className="team-key team-opened" /> Opened
-        </span>
-        <span>
-          <i className="team-key team-merged" /> Merged
-        </span>
+        {keys.map(([k, label], n) => (
+          <span key={k}>
+            <i className={`team-key team-series-${n + 1}`} /> {label}
+          </span>
+        ))}
         <output className="team-readout">
           {week ? (
             <>
-              Week of {isoDate(week.start)}: <b>{week.opened.count}</b> opened, <b>{week.merged.count}</b> merged
+              Week of {isoDate(week.start)}: {counts((k) => get(week, k).count)}
             </>
           ) : (
-            <>
-              In range: <b>{sum('opened')}</b> opened, <b>{sum('merged')}</b> merged
-            </>
+            <>In range: {counts(sum)}</>
           )}
         </output>
       </div>
@@ -171,8 +205,15 @@ function WeekChart({ series }: { series: TeamData['series'] }) {
         <div className="team-plot">
           {series.map((w, n) => (
             <div key={w.start} className="team-week" onPointerEnter={() => setHover(n)} onFocus={() => setHover(n)}>
-              {bar(w.opened, 'opened', w.start)}
-              {bar(w.merged, 'merged', w.start)}
+              {keys.map(([k, label], i) => {
+                const m = get(w, k)
+                const Tag = m.href ? 'a' : 'span'
+                return (
+                  <Tag key={k} href={m.href} tabIndex={0} className={`team-bar team-series-${i + 1}`} aria-label={`${m.count} ${label.toLowerCase()}, week of ${isoDate(w.start)}`}>
+                    <span style={{ height: `${(m.count / max) * 100}%` }} />
+                  </Tag>
+                )
+              })}
               <span className="team-tick">{n % labelEvery === 0 && isoDate(w.start).slice(5)}</span>
             </div>
           ))}
@@ -184,20 +225,18 @@ function WeekChart({ series }: { series: TeamData['series'] }) {
           <thead>
             <tr>
               <th>Week of</th>
-              <th>Opened</th>
-              <th>Merged</th>
+              {keys.map(([k, label]) => (
+                <th key={k}>{label}</th>
+              ))}
             </tr>
           </thead>
           <tbody>
             {series.map((w) => (
               <tr key={w.start}>
                 <td>{isoDate(w.start)}</td>
-                <td>
-                  <a href={w.opened.href}>{w.opened.count}</a>
-                </td>
-                <td>
-                  <a href={w.merged.href}>{w.merged.count}</a>
-                </td>
+                {keys.map(([k]) => (
+                  <td key={k}>{value(get(w, k))}</td>
+                ))}
               </tr>
             ))}
           </tbody>
@@ -234,18 +273,49 @@ function Repos({ repos }: { repos: TeamData['repos'] }) {
   )
 }
 
-export function Team({ items, search }: { items: Item[]; search: string }) {
+export function Team({ items, search, preset, core }: { items: Item[]; search: string; preset: string | null; core: string[] }) {
   const params = new URLSearchParams(search)
   const weeks = RANGES.includes(Number(params.get('weeks'))) ? Number(params.get('weeks')) : 12
   const login = params.get('member') ?? ''
-  const people = useMemo(() => members(items, weeks), [items, weeks])
-  const rows = useMemo(() => (login ? [] : people.map((m) => summary(items, m.login, weeks))), [items, people, login, weeks])
-  const t = useMemo(() => (login ? team(items, login, weeks) : null), [items, login, weeks])
+  const group = (params.get('group') ?? 'core') as Group
+  const org = params.get('org') ?? ''
+  const orgs = useMemo(() => [...new Set(items.map(orgOf))].sort(), [items])
+  const people = useMemo(() => members(org ? items.filter((i) => orgOf(i) === org) : items, weeks, Date.now(), core, group), [items, org, weeks, core, group])
+  const summaries = useMemo(() => (login ? [] : people.map((m) => summary(items, m.login, weeks, Date.now(), org))), [items, people, login, weeks, org])
+  const t = useMemo(() => (login ? team(items, login, weeks, Date.now(), org) : null), [items, login, weeks, org])
+  // ponytail: server caps /api/activity at 100 logins, members beyond the most active 100 show no review stats
+  const logins = useMemo(() => (login ? [login] : people.slice(0, 100).map((m) => m.login)), [login, people])
+  const activity = useActivity(preset, org, logins, rangeStart(weeks, Date.now()))
+  const reviewSeries = useMemo(() => (t ? reviewsPerWeek(t.series, activity.data?.[login]?.reviews ?? []) : []), [t, activity.data, login])
+  const rows = summaries.map((s) => ({ ...s, activity: activity.data?.[s.login] }))
 
   return (
     <div className="team">
       <div className="team-filters">
         {login && <a href={teamHref(search, { member: '' })}>Back to team</a>}
+        {orgs.length > 1 && (
+          <label>
+            Org
+            <select value={org} onChange={(e) => navigate(search, { org: e.target.value })}>
+              <option value="">All orgs</option>
+              {orgs.map((o) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <label>
+          Group
+          <select value={group} onChange={(e) => navigate(search, { group: e.target.value === 'core' ? '' : e.target.value })}>
+            {Object.entries(GROUPS).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
         <label>
           Member
           <select value={login} title="Count: authored items updated in range" onChange={(e) => navigate(search, { member: e.target.value })}>
@@ -263,18 +333,19 @@ export function Team({ items, search }: { items: Item[]; search: string }) {
           <select value={weeks} onChange={(e) => navigate(search, { weeks: e.target.value })}>
             {RANGES.map((w) => (
               <option key={w} value={w}>
-                {w} weeks
+                {w === 1 ? '1 week' : `${w} weeks`}
               </option>
             ))}
           </select>
         </label>
         <span className="muted">since {isoDate(rangeStart(weeks, Date.now()))}</span>
+        {activity.error && <span className="error" role="alert">Reviews and comments: {activity.error}</span>}
       </div>
       {!t ? (
         rows.length ? (
           <Members rows={rows} search={search} />
         ) : (
-          <p className="empty">No team members found. Members are authors with a member, owner or collaborator association.</p>
+          <p className="empty">No team members found. Set a core team for this preset in Settings, otherwise org members who authored items are listed.</p>
         )
       ) : (
         <>
@@ -287,16 +358,21 @@ export function Team({ items, search }: { items: Item[]; search: string }) {
           <div className="team-cards">
             <Card label="Open PRs" metric={t.openPrs} />
             <Card label="Open issues" metric={t.openIssues} />
-            <Card label="Review requests" metric={t.reviewRequests} />
+            <Card label="Pending reviews" metric={t.reviewRequests} />
             <Card label="Assigned open" metric={t.assigned} />
             <Card label="PRs merged" metric={t.merged} />
+            <ActivityCard label="PRs reviewed" value={activity.data?.[login]?.reviewed} />
+            <ActivityCard label="Commented on" value={activity.data?.[login]?.commented} />
             <Card label="Issues closed" metric={t.issuesClosed} />
             <DurationCard label="Median to first review" noun="reviewed" value={t.review.median} metric={t.review.reviewed} />
             <DurationCard label="Median to triage, community issues" noun="triaged" value={t.triage.median} metric={t.triage.triaged} />
             <Card label="Assigned untriaged" metric={t.untriaged} />
           </div>
           <div className="team-grid">
-            <WeekChart series={t.series} />
+            <WeekChart title="Pull requests per week" keys={[['opened', 'Opened'], ['merged', 'Merged']]} series={t.series} />
+            <WeekChart title="Issues triaged per week" keys={[['triaged', 'Triaged']]} series={t.series} />
+            <WeekChart title="PRs reviewed per week" keys={[['reviewed', 'Reviewed']]} series={reviewSeries} />
+            <ItemList title="Merged PRs in range" items={t.merged.list.toSorted((a, b) => b.closedAt!.localeCompare(a.closedAt!))} more={t.merged} date="closedAt" />
             <ItemList title="Oldest open PRs" items={t.oldestPrs} more={t.openPrs} date="createdAt" />
             <ItemList title={`Assigned, no update for ${STALE_DAYS}+ days`} items={t.stale.list} more={t.stale} date="updatedAt" />
             <Repos repos={t.repos} />

@@ -1,15 +1,15 @@
 import { useEffect, useState } from 'react'
-import { AGENTS, TERMINALS, type Settings as LaunchSettings } from '../../shared/types.ts'
+import { AGENTS, TERMINALS, type Preset, type Settings as LaunchSettings } from '../../shared/types.ts'
 import { PlusIcon, TrashIcon } from '@primer/octicons-react'
 
-type Row = { name: string; sources: string }
+type Row = { name: string; sources: string; core: string }
 
-const EMPTY_ROW: Row = { name: '', sources: '' }
+const EMPTY_ROW: Row = { name: '', sources: '', core: '' }
 const TERMINAL_LABELS: Record<LaunchSettings['terminal'], string> = { iterm: 'iTerm', cmux: 'cmux' }
 const AGENT_LABELS: Record<LaunchSettings['agent'], string> = { claude: 'Claude Code', custom: 'Custom command' }
 
-const toRows = (presets: Record<string, string[]>): Row[] => {
-  const rows = Object.entries(presets).map(([name, sources]) => ({ name, sources: sources.join('\n') }))
+const toRows = (presets: Record<string, Preset>): Row[] => {
+  const rows = Object.entries(presets).map(([name, p]) => ({ name, sources: p.sources.join('\n'), core: p.core.join('\n') }))
   return rows.length ? rows : [EMPTY_ROW]
 }
 
@@ -80,7 +80,7 @@ function Presets({ onSaved }: { onSaved: () => void }) {
     setBusy(true)
     setStatus({})
     try {
-      const body = Object.fromEntries(rows.map((r) => [r.name.trim(), lines(r.sources)]))
+      const body = Object.fromEntries(rows.map((r) => [r.name.trim(), { sources: lines(r.sources), core: lines(r.core).map((l) => l.replace(/^@/, '')) }]))
       const res = await fetch('/api/presets', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
       const json = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(json.error ?? `${res.status} ${res.statusText}`)
@@ -97,7 +97,7 @@ function Presets({ onSaved }: { onSaved: () => void }) {
   return (
     <>
       <h2>Presets</h2>
-      <p className="muted">Each preset is a team view. Add one GitHub org or owner/repo per line.</p>
+      <p className="muted">Each preset is a team view. Add one GitHub org or owner/repo per line, and the GitHub handles of the core team. Everyone else counts as community.</p>
       {rows.map((row, i) => (
         <fieldset key={i} className="ov-card">
           <label>
@@ -114,13 +114,24 @@ function Presets({ onSaved }: { onSaved: () => void }) {
               spellCheck={false}
             />
           </label>
+          <label>
+            Core team
+            <textarea
+              rows={Math.max(3, row.core.split('\n').length + 1)}
+              value={row.core}
+              onChange={(e) => change(i, { core: e.target.value })}
+              placeholder={'octocat\nhubot'}
+              spellCheck={false}
+            />
+            <span className="muted">Leave empty to use org members.</span>
+          </label>
           <button type="button" onClick={() => setRows(rows.filter((_, j) => j !== i))} disabled={rows.length === 1}>
             <TrashIcon /> Remove preset
           </button>
         </fieldset>
       ))}
       <div className="row">
-        <button type="button" onClick={() => setRows([...rows, { name: '', sources: '' }])}>
+        <button type="button" onClick={() => setRows([...rows, EMPTY_ROW])}>
           <PlusIcon /> Add preset
         </button>
         <button type="button" className="primary" onClick={save} disabled={busy || !!duplicate || names.some((n) => !n)}>

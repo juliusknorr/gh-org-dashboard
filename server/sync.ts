@@ -2,29 +2,36 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { CiState, Item, ReviewDecision, SyncStatus } from '../shared/types.ts'
+import type { CiState, Item, Preset, ReviewDecision, SyncStatus } from '../shared/types.ts'
 import { deleteItemsOutside, getMeta, replaceAdvisories, setMeta, upsertItems } from './db.ts'
 
 const presetsFile = process.env.PRESETS_FILE ?? fileURLToPath(new URL('../presets.json', import.meta.url))
 export const configDir = dirname(presetsFile)
 const SOURCE = /^[\w.-]{1,39}(\/[\w.-]{1,100})?$/
+export const LOGIN = /^[a-z\d](?:[a-z\d-]{0,38})$/i
 
-type Presets = Record<string, string[]>
+type Presets = Record<string, Preset>
 
 function validatePresets(presets: unknown): Presets {
   if (!presets || typeof presets !== 'object' || Array.isArray(presets) || !Object.keys(presets).length) throw new Error('Define at least one preset')
-  for (const [name, sources] of Object.entries(presets)) {
-    if (!name.trim() || name.length > 100) throw new Error('Preset names must be 1 to 100 characters')
-    if (!Array.isArray(sources) || !sources.length || sources.length > 200 || !sources.every((s) => typeof s === 'string' && SOURCE.test(s))) {
-      throw new Error(`"${name}" needs a list of "org" or "owner/repo" entries`)
-    }
-  }
-  return presets as Presets
+  return Object.fromEntries(
+    Object.entries(presets).map(([name, value]) => {
+      if (!name.trim() || name.length > 100) throw new Error('Preset names must be 1 to 100 characters')
+      const { sources, core = [] } = Array.isArray(value) ? { sources: value } : (value ?? {})
+      if (!Array.isArray(sources) || !sources.length || sources.length > 200 || !sources.every((s) => typeof s === 'string' && SOURCE.test(s))) {
+        throw new Error(`"${name}" needs a list of "org" or "owner/repo" entries`)
+      }
+      if (!Array.isArray(core) || core.length > 500 || !core.every((l) => typeof l === 'string' && LOGIN.test(l))) {
+        throw new Error(`"${name}" core team must be a list of GitHub handles`)
+      }
+      return [name, { sources, core }]
+    }),
+  )
 }
 
 const loadPresets = (): Presets => (existsSync(presetsFile) ? validatePresets(JSON.parse(readFileSync(presetsFile, 'utf8'))) : {})
 
-const sourcesOf = (presets: Presets) => [...new Set(Object.values(presets).flat())]
+const sourcesOf = (presets: Presets) => [...new Set(Object.values(presets).flatMap((p) => p.sources))]
 
 let PRESETS = loadPresets()
 let SOURCES = sourcesOf(PRESETS)
@@ -32,8 +39,10 @@ let SOURCES = sourcesOf(PRESETS)
 export const getPresets = () => PRESETS
 const sourceRepos: Record<string, string[]> = JSON.parse(getMeta('sourceRepos') ?? '{}')
 
+export const presetCore = (): Record<string, string[]> => Object.fromEntries(Object.entries(PRESETS).map(([name, p]) => [name, p.core]))
+
 export const presetRepos = (): Record<string, string[]> =>
-  Object.fromEntries(Object.entries(PRESETS).map(([name, sources]) => [name, sources.flatMap((s) => sourceRepos[s] ?? (s.includes('/') ? [s] : []))]))
+  Object.fromEntries(Object.entries(PRESETS).map(([name, { sources }]) => [name, sources.flatMap((s) => sourceRepos[s] ?? (s.includes('/') ? [s] : []))]))
 
 export const isSyncedRepo = (repo: string) =>
   SOURCES.some((s) => (sourceRepos[s] ?? [s]).some((r) => r.toLowerCase() === repo.toLowerCase()))

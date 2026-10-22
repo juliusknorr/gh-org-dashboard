@@ -212,7 +212,9 @@ function useData() {
   const data = useMemo(() => {
     if (!all || !preset) return all
     const repos = new Set(all.presets[preset].map((r) => r.toLowerCase()))
-    return { ...all, items: all.items.filter((i) => repos.has(i.repo.toLowerCase())) }
+    const core = new Set(all.core[preset].map((l) => l.toLowerCase()))
+    const items = all.items.filter((i) => repos.has(i.repo.toLowerCase()))
+    return { ...all, items: core.size ? items.map((i) => ({ ...i, member: !!i.author && core.has(i.author.toLowerCase()) })) : items }
   }, [all, preset])
   const [error, setError] = useState<string | null>(null)
   const load = useCallback(async () => {
@@ -721,6 +723,8 @@ function useLocation() {
   return new URL(url, location.origin)
 }
 
+const EMPTY_LOGINS: string[] = []
+
 export function App() {
   const { pathname, search } = useLocation()
   const data = useData()
@@ -757,7 +761,7 @@ export function App() {
         ) : page === '/reviews' ? (
           <AiReviews items={items} viewer={data.data?.viewer ?? null} selected={reviewItem} />
         ) : page === '/team' ? (
-          <Team items={items} search={search} />
+          <Team items={items} search={search} preset={data.preset} core={(data.preset && data.data?.core[data.preset]) || EMPTY_LOGINS} />
         ) : (
           <Overview items={items} search={search} />
         )}

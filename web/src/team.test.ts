@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import type { Item } from '../../shared/types.ts'
 import { filterItems, parseFilters } from './filters.ts'
 import { DAY } from './overview.ts'
-import { members, summary, team } from './team.ts'
+import { members, reviewsPerWeek, summary, team } from './team.ts'
 
 const now = Date.parse('2026-10-01T12:00:00Z')
 const at = (days: number) => new Date(now - days * DAY).toISOString()
@@ -50,6 +50,23 @@ const items = [
 
 test('members are member authors sorted by activity', () => {
   assert.deepEqual(members(items, 12, now).map((m) => [m.login, m.active]), [['alice', 3], ['bob', 2]])
+})
+
+test('core team replaces org members and matches logins case-insensitively', () => {
+  assert.deepEqual(members(items, 12, now, ['Carol', 'zoe']).map((m) => [m.login, m.active]), [['carol', 1], ['zoe', 0]])
+})
+
+test('org and external groups ignore core team and bots', () => {
+  assert.deepEqual(members(items, 12, now, ['zoe'], 'org').map((m) => m.login), ['alice', 'bob'])
+  assert.deepEqual(members(items, 12, now, ['zoe'], 'external').map((m) => m.login), ['dave', 'carol'])
+})
+
+test('triaged and reviewed per week', () => {
+  const t = team(items, 'alice', 4, now)
+  assert.deepEqual(t.series.map((w) => w.triaged.count), [0, 0, 0, 2])
+  const at0 = new Date(t.series[3].start + DAY).toISOString()
+  const reviews = [{ url: 'a', at: at0 }, { url: 'a', at: at0 }, { url: 'b', at: new Date(t.series[0].start).toISOString() }]
+  assert.deepEqual(reviewsPerWeek(t.series, reviews).map((w) => w.reviewed.count), [1, 0, 0, 1])
 })
 
 test('team metrics', () => {

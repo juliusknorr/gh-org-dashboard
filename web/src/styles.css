@@ -357,8 +357,8 @@ a.team-value:hover { text-decoration: underline; }
 .team-legend { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; color: var(--muted); font-size: 12px; }
 .team-key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; }
 .team-readout { margin-left: auto; color: var(--fg); }
-.team-opened { --c: var(--series-1, #2a78d6); }
-.team-merged { --c: var(--series-2, #eb6834); }
+.team-series-1 { --c: var(--series-1, #2a78d6); }
+.team-series-2 { --c: var(--series-2, #eb6834); }
 .team-key, .team-bar span { background: var(--c); }
 .team-chart { position: relative; }
 .team-max { position: absolute; top: 0; left: 0; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }

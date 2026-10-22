@@ -8,7 +8,8 @@ import { allItems, dataDir, getMeta, markRead, setMeta } from './db.ts'
 import { fetchDetails, fetchRepoOptions, parseAction, renderMarkdown, runAction } from './items.ts'
 import { checkoutOptions, getSettings, launch, setSettings } from './launch.ts'
 import { getReview, listReviews, pruneReview, startReview } from './review.ts'
-import { HttpError, configDir, getPresets, getSyncStatus, isOrgMember, presetRepos, savePresets, startSync, viewerLogin } from './sync.ts'
+import { activity } from './activity.ts'
+import { HttpError, LOGIN, configDir, getPresets, getSyncStatus, isOrgMember, presetCore, presetRepos, savePresets, startSync, viewerLogin } from './sync.ts'
 
 const PORT = Number(process.env.PORT ?? 3001)
 const dataPath = fileURLToPath(dataDir).replace(/\/$/, '')
@@ -161,7 +162,7 @@ createServer(async (req, res) => {
     }
     if (pathname === '/api/items' && req.method === 'GET') {
       const items = allItems().map((i) => ({ ...i, member: isOrgMember(i.repo, i.author) }))
-      const body: ItemsResponse = { presets: presetRepos(), settings: getSettings(), items, sync: getSyncStatus(), viewer: await viewerLogin() }
+      const body: ItemsResponse = { presets: presetRepos(), core: presetCore(), settings: getSettings(), items, sync: getSyncStatus(), viewer: await viewerLogin() }
       return sendJson(res, body)
     }
     if (itemRoute && !itemRoute[2] && req.method === 'GET') return sendJson(res, await fetchDetails(itemRoute[1]))
@@ -174,6 +175,16 @@ createServer(async (req, res) => {
     if (itemRoute?.[2] === '/actions' && req.method === 'POST') return sendJson(res, await runAction(itemRoute[1], parseAction(await readJson(req))))
     if (optionsRepo && req.method === 'GET') return sendJson(res, await fetchRepoOptions(optionsRepo))
     if (pathname === '/api/markdown' && req.method === 'POST') return sendJson(res, await renderMarkdown(await readJson(req)))
+    if (pathname === '/api/activity' && req.method === 'GET') {
+      const logins = (searchParams.get('logins') ?? '').split(',')
+      const from = searchParams.get('from') ?? ''
+      const org = searchParams.get('org')?.toLowerCase()
+      const repos = presetRepos()[searchParams.get('preset') ?? '']?.filter((r) => !org || r.toLowerCase().startsWith(`${org}/`))
+      if (!repos || logins.length > 100 || !logins.every((l) => LOGIN.test(l)) || !/^\d{4}-\d{2}-\d{2}$/.test(from)) {
+        throw new HttpError(400, 'Expects a preset, up to 100 comma separated logins and a from date')
+      }
+      return sendJson(res, await activity(logins, `${from}T00:00:00Z`, repos))
+    }
     if (pathname === '/api/presets' && req.method === 'GET') return sendJson(res, getPresets())
     if (pathname === '/api/presets' && req.method === 'POST') return sendJson(res, await savePresets(await readJson(req)))
     if (pathname === '/api/settings' && req.method === 'GET') return sendJson(res, getSettings())
